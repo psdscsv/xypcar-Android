@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 原有颜色保留 -->
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- 主界面 -->
+    <color name="bg_main">#AAAAAA</color>                     <!-- 白天背景 -->
+    <color name="text_primary">#000000</color>               <!-- 主要文字 -->
+    <color name="text_secondary">#666666</color>             <!-- 次要文字 -->
+    <color name="text_status_connected">#00CC00</color>      <!-- 已连接状态 -->
+    <color name="text_status_disconnected">#FF4444</color>   <!-- 未连接状态 -->
+
+    <!-- 选择界面 -->
+    <color name="bg_setting">#F0F0F0</color>                     <!-- 白天背景 -->
+
+    <!-- 按钮颜色（用于涟漪背景） -->
+    <color name="btn_connect_enabled">#2A3A5A</color>
+    <color name="btn_connect_disabled">#888888</color>
+    <color name="btn_disconnect_enabled">#AA4444</color>
+    <color name="btn_disconnect_disabled">#888888</color>
+    <color name="btn_reset_enabled">#FF8800</color>
+    <color name="btn_reset_disabled">#888888</color>
+</resources>
