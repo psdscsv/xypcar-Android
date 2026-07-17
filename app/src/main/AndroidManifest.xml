@@ -9,10 +9,17 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <meta-data
+        android:name="com.amap.api.v2.apikey"
+        android:value="${AMAP_KEY}"/>
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
+
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -22,6 +29,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+
         <!-- 新启动页 -->
         <activity
             android:name=".MainActivity"
@@ -45,6 +53,11 @@
             android:name=".SettingsActivity"
             android:label="设置"
             android:parentActivityName=".MainActivity"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/AppTheme" />
+        <!-- 自动导航界面 -->
+        <activity
+            android:name=".AutoDriveActivity"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/AppTheme" />
     </application>

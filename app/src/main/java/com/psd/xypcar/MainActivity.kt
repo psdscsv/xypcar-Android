@@ -23,5 +23,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_settings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        findViewById<Button>(R.id.btn_auto_drive).setOnClickListener {
+            startActivity(Intent(this, AutoDriveActivity::class.java))
+        }
     }
 }
