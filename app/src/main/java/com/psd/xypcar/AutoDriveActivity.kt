@@ -45,6 +45,7 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
     private lateinit var tvStatus: TextView
     private lateinit var tvInfo: TextView
     private lateinit var tvBleStatus: TextView
+    private lateinit var btnLocate: Button
 
     // 目标点
     private var targetLatLon: LatLonPoint? = null
@@ -58,20 +59,21 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
     // 定位
     private lateinit var locationManager: LocationManager
     private var currentLocation: Location? = null
+    private var isFirstLocation = true  // 首次定位标记
 
     // 导航循环
     private val handler = Handler(Looper.getMainLooper())
     private var navRunnable: Runnable? = null
-    private val navInterval = 100L // 100ms 发送一次控制
+    private val navInterval = 100L
 
     // BLE 连接状态
     private var isBleConnected = false
 
-    // 控制参数（从设置读取）
+    // 控制参数
     private var maxSpeed = 2.2f
     private var maxTurn = 50f
-    private val targetSpeed = 1.5f      // 巡航速度 (m/s)
-    private val stopDistance = 0.5f      // 终点停止距离 (米)
+    private val targetSpeed = 1.5f
+    private val stopDistance = 0.5f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,6 +92,12 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
         aMap.uiSettings.isZoomControlsEnabled = true
         aMap.uiSettings.isCompassEnabled = true
 
+        // ==== 启用定位图层 ====
+        aMap.isMyLocationEnabled = true
+        val myLocationStyle = MyLocationStyle()
+        myLocationStyle.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATION_ROTATE)
+        aMap.myLocationStyle = myLocationStyle
+
         // 初始化 UI
         etTargetLat = findViewById(R.id.et_target_lat)
         etTargetLng = findViewById(R.id.et_target_lng)
@@ -99,6 +107,7 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
         tvStatus = findViewById(R.id.tv_status)
         tvInfo = findViewById(R.id.tv_info)
         tvBleStatus = findViewById(R.id.tv_ble_status)
+        btnLocate = findViewById(R.id.btn_locate)
 
         // 读取配置
         val prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
@@ -181,6 +190,11 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
             stopNavigation()
         }
 
+        // ==== 定位按钮点击事件 ====
+        btnLocate.setOnClickListener {
+            moveToMyLocation()
+        }
+
         // 自动连接 BLE
         connectBle()
     }
@@ -240,23 +254,29 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
         }
     }
 
-    // ---------- LocationListener （修正签名，移除非必须方法） ----------
+    // ---------- LocationListener ----------
     override fun onLocationChanged(location: Location) {
         currentLocation = location
-        aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(location.latitude, location.longitude), 18f))
-        // 可以添加车辆标记（此处省略）
+        // 首次定位时自动移动到当前位置
+        if (isFirstLocation) {
+            isFirstLocation = false
+            moveToMyLocation()
+        }
+        // 可在此处更新车辆标记等其他逻辑
     }
 
-    // 可选方法，如不需处理可留空或删除，这里保留空实现（正确签名）
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+    override fun onProviderEnabled(provider: String) {}
+    override fun onProviderDisabled(provider: String) {}
 
-    // 注意：以下两个方法签名已修正（去掉了可空?和默认参数）
-    override fun onProviderEnabled(provider: String) {
-        // 不需要实现
-    }
-
-    override fun onProviderDisabled(provider: String) {
-        // 不需要实现
+    // ---------- 移动到我的位置 ----------
+    private fun moveToMyLocation() {
+        val loc = currentLocation ?: run {
+            Toast.makeText(this, "正在获取位置...", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val latLng = LatLng(loc.latitude, loc.longitude)
+        aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
     }
 
     // ---------- 路线规划回调 ----------
@@ -270,7 +290,6 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
                 }
             }
             routePoints = points
-            // 绘制路线
             aMap.addPolyline(PolylineOptions()
                 .addAll(points)
                 .width(15f)
@@ -305,7 +324,6 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
             return
         }
         val startLatLon = LatLonPoint(currentLocation!!.latitude, currentLocation!!.longitude)
-        // 修复：使用完全限定名或导入 DriveRouteQuery 和 FromAndTo
         val query = RouteSearch.DriveRouteQuery(
             RouteSearch.FromAndTo(startLatLon, targetLatLon),
             0,
@@ -354,11 +372,9 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
         val targetPoint = points[currentPointIndex]
         val nextPoint = points[Math.min(currentPointIndex + 1, points.size - 1)]
 
-        // 距当前目标点的距离
         val distance = distanceBetween(currentLoc.latitude, currentLoc.longitude,
             targetPoint.latitude, targetPoint.longitude)
 
-        // 如果接近目标点，前进到下一个点
         if (distance < stopDistance) {
             currentPointIndex++
             if (currentPointIndex >= points.size - 1) {
@@ -369,15 +385,11 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
                 btnStopNav.isEnabled = false
                 return
             }
-            // 重新获取目标点，继续循环
-            // 本次不再计算，等待下一轮
             return
         }
 
-        // 计算目标方向角
         val targetBearing = bearingBetween(currentLoc.latitude, currentLoc.longitude,
             targetPoint.latitude, targetPoint.longitude)
-        // 当前航向
         val currentBearing = if (currentLoc.hasBearing()) currentLoc.bearing else 0f
 
         var turnDiff = targetBearing - currentBearing
@@ -387,12 +399,10 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
         val maxTurnDiff = 45f
         val turnValue = (turnDiff / maxTurnDiff).coerceIn(-1f, 1f)
 
-        // 速度：距离越近越慢
         val speedFactor = if (distance > 5f) 1f else (distance / 5f).coerceIn(0.2f, 1f)
         val speed = targetSpeed * speedFactor
 
         bleController.sendControl(speed, turnValue * maxTurn, stop = false)
-
         tvInfo.text = "目标点 ${currentPointIndex+1}/${points.size-1}  距离 ${"%.1f".format(distance)}m"
     }
 
@@ -416,7 +426,7 @@ class AutoDriveActivity : AppCompatActivity(), RouteSearch.OnRouteSearchListener
     private fun bearingBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
         val results = FloatArray(3)
         Location.distanceBetween(lat1, lng1, lat2, lng2, results)
-        return results[1] // 初始方位角
+        return results[1]
     }
 
     private fun addTargetMarker() {

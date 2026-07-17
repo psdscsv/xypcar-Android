@@ -12,110 +12,128 @@
         android:layout_height="match_parent"
         android:layout_weight="1" />
 
-    <!-- 右侧控制面板 -->
-    <LinearLayout
+    <!-- 右侧控制面板 - 带滚动 -->
+    <ScrollView
         android:layout_width="280dp"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:padding="16dp"
         android:background="#CC000000"
-        android:gravity="center_horizontal">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="自动驾驶"
-            android:textSize="24sp"
-            android:textColor="#FFFFFF"
-            android:layout_marginBottom="16dp"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="目标点"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"/>
+        android:scrollbars="vertical"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            <EditText
-                android:id="@+id/et_target_lat"
-                android:layout_width="0dp"
-                android:layout_weight="1"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:gravity="center_horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:hint="纬度"
-                android:inputType="numberDecimal"
-                android:background="@android:drawable/editbox_background"
-                android:padding="8dp"
-                android:textColor="#000000"/>
-            <EditText
-                android:id="@+id/et_target_lng"
-                android:layout_width="0dp"
-                android:layout_weight="1"
+                android:text="自动驾驶"
+                android:textSize="24sp"
+                android:textColor="#FFFFFF"
+                android:layout_marginBottom="16dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:hint="经度"
-                android:inputType="numberDecimal"
-                android:background="@android:drawable/editbox_background"
-                android:padding="8dp"
-                android:textColor="#000000"/>
+                android:text="目标点"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <EditText
+                    android:id="@+id/et_target_lat"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:hint="纬度"
+                    android:inputType="numberDecimal"
+                    android:background="@android:drawable/editbox_background"
+                    android:padding="8dp"
+                    android:textColor="#000000"/>
+                <EditText
+                    android:id="@+id/et_target_lng"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:hint="经度"
+                    android:inputType="numberDecimal"
+                    android:background="@android:drawable/editbox_background"
+                    android:padding="8dp"
+                    android:textColor="#000000"/>
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btn_set_target_by_map"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="在地图上选点"
+                android:backgroundTint="#4A6A9A"
+                android:textColor="#FFFFFF"
+                android:layout_marginTop="8dp"/>
+
+            <Button
+                android:id="@+id/btn_start_nav"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="开始导航"
+                android:backgroundTint="#4CAF50"
+                android:textColor="#FFFFFF"
+                android:layout_marginTop="16dp"/>
+
+            <Button
+                android:id="@+id/btn_stop_nav"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="停止导航"
+                android:enabled="false"
+                android:backgroundTint="#F44336"
+                android:textColor="#FFFFFF"/>
+
+            <TextView
+                android:id="@+id/tv_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="状态: 未开始"
+                android:textColor="#00FFAA"
+                android:textSize="16sp"
+                android:layout_marginTop="16dp"/>
+
+            <TextView
+                android:id="@+id/tv_info"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:layout_marginTop="8dp"/>
+
+            <TextView
+                android:id="@+id/tv_ble_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BLE: 未连接"
+                android:textColor="#FFAA44"
+                android:textSize="14sp"
+                android:layout_marginTop="16dp"/>
+
+            <!-- 新增定位按钮 -->
+            <Button
+                android:id="@+id/btn_locate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="📍 定位"
+                android:backgroundTint="#2196F3"
+                android:textColor="#FFFFFF"/>
+
         </LinearLayout>
 
-        <Button
-            android:id="@+id/btn_set_target_by_map"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="在地图上选点"
-            android:backgroundTint="#4A6A9A"
-            android:textColor="#FFFFFF"
-            android:layout_marginTop="8dp"/>
-
-        <Button
-            android:id="@+id/btn_start_nav"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="开始导航"
-            android:backgroundTint="#4CAF50"
-            android:textColor="#FFFFFF"
-            android:layout_marginTop="16dp"/>
-
-        <Button
-            android:id="@+id/btn_stop_nav"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="停止导航"
-            android:enabled="false"
-            android:backgroundTint="#F44336"
-            android:textColor="#FFFFFF"/>
-
-        <TextView
-            android:id="@+id/tv_status"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="状态: 未开始"
-            android:textColor="#00FFAA"
-            android:textSize="16sp"
-            android:layout_marginTop="16dp"/>
-
-        <TextView
-            android:id="@+id/tv_info"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=""
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:layout_marginTop="8dp"/>
-
-        <TextView
-            android:id="@+id/tv_ble_status"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="BLE: 未连接"
-            android:textColor="#FFAA44"
-            android:textSize="14sp"
-            android:layout_marginTop="16dp"/>
-
-    </LinearLayout>
+    </ScrollView>
 
 </LinearLayout>
