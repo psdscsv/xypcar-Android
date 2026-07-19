@@ -112,7 +112,22 @@
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:layout_marginTop="8dp"/>
+            <TextView
+                android:id="@+id/tv_speed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="速度: 0.0 m/s"
+                android:textColor="#00FFAA"
+                android:textSize="16sp"
+                android:layout_marginTop="8dp"/>
 
+            <TextView
+                android:id="@+id/tv_turn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="转向: 0.0 °/s"
+                android:textColor="#FFAA44"
+                android:textSize="16sp"/>
             <TextView
                 android:id="@+id/tv_ble_status"
                 android:layout_width="wrap_content"
