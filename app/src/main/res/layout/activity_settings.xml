@@ -1,82 +1,323 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp"
     android:background="@color/bg_setting">
 
+    <!-- 一级菜单 -->
     <LinearLayout
+        android:id="@+id/menu_main"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="visible">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="24dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="设置"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btn_exit"
+                style="@style/Widget.AppCompat.Button.Borderless"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="✕"
+                android:textSize="24sp"
+                android:textColor="@color/text_primary"
+                android:padding="8dp"
+                android:background="?attr/selectableItemBackground" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/menu_bluetooth"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="start|center_vertical"
+            android:padding="16dp"
+            android:text="🛜蓝牙设置"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#444" />
+
+        <Button
+            android:id="@+id/menu_control"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="start|center_vertical"
+            android:padding="16dp"
+            android:text="🔧控制参数"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#444" />
+
+        <Button
+            android:id="@+id/menu_navigation"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="start|center_vertical"
+            android:padding="16dp"
+            android:text="🗺导航设置"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#444" />
+
+    </LinearLayout>
+
+    <!-- 子页面：蓝牙设置（LinearLayout，无滚动，内容少） -->
+    <LinearLayout
+        android:id="@+id/page_bluetooth"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/btn_back_main"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="← 返回"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="设置"
-            android:textSize="24sp"
-            android:textStyle="bold"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"
+            android:text="蓝牙设置"
             android:textColor="@color/text_primary"
-            android:layout_marginBottom="16dp"/>
+            android:textSize="24sp"
+            android:textStyle="bold" />
 
-        <!-- 设备名称 -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="蓝牙设备名称"
-            android:textSize="16sp"
             android:textColor="@color/text_primary"
-            android:layout_marginTop="12dp"/>
+            android:textSize="16sp" />
+
         <EditText
             android:id="@+id/et_device_name"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:singleLine="true"
             android:background="@android:drawable/editbox_background"
-            android:padding="10dp"/>
+            android:padding="10dp"
+            android:singleLine="true" />
 
-        <!-- 最大速度 -->
+        <Button
+            android:id="@+id/btn_save_bluetooth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:backgroundTint="#4CAF50"
+            android:text="保存蓝牙设置"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- 子页面：控制参数（LinearLayout，无滚动，内容少） -->
+    <LinearLayout
+        android:id="@+id/page_control"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/btn_back_main_control"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="← 返回"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"
+            android:text="控制参数"
+            android:textColor="@color/text_primary"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="最大速度 (m/s)"
-            android:textSize="16sp"
             android:textColor="@color/text_primary"
-            android:layout_marginTop="16dp"/>
+            android:textSize="16sp" />
+
         <EditText
             android:id="@+id/et_max_speed"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="numberDecimal"
             android:background="@android:drawable/editbox_background"
-            android:padding="10dp"/>
+            android:inputType="numberDecimal"
+            android:padding="10dp" />
 
-        <!-- 最大转向 -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
             android:text="最大转向 (°/s)"
-            android:textSize="16sp"
             android:textColor="@color/text_primary"
-            android:layout_marginTop="16dp"/>
+            android:textSize="16sp" />
+
         <EditText
             android:id="@+id/et_max_turn"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="numberDecimal"
             android:background="@android:drawable/editbox_background"
-            android:padding="10dp"/>
+            android:inputType="numberDecimal"
+            android:padding="10dp" />
 
-
-        <!-- 保存按钮 -->
         <Button
-            android:id="@+id/btn_save_settings"
+            android:id="@+id/btn_save_control"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="保存设置"
-
             android:backgroundTint="#4CAF50"
-            android:textColor="#FFFFFF"/>
+            android:text="保存控制参数"
+            android:textColor="#FFFFFF" />
     </LinearLayout>
-</ScrollView>
+
+    <!-- 子页面：导航设置（ScrollView 包裹，支持垂直滚动） -->
+    <ScrollView
+        android:id="@+id/page_navigation"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="16dp"
+        android:visibility="gone"
+        android:fillViewport="true"
+        android:background="@color/bg_setting">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <Button
+                android:id="@+id/btn_back_main_nav"
+                style="@style/Widget.AppCompat.Button.Borderless"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="← 返回"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp"
+                android:text="导航设置"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <!-- 导航最大速度 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="导航最大速度 (m/s)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/et_nav_max_speed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:inputType="numberDecimal"
+                android:padding="10dp"
+                android:text="1.5" />
+
+            <!-- 导航最大转向 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="导航最大转向 (°/s)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/et_nav_max_turn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:inputType="numberDecimal"
+                android:padding="10dp"
+                android:text="50" />
+
+            <!-- 到达距离 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="到达距离 (米)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/et_arrival_distance"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:inputType="numberDecimal"
+                android:padding="10dp"
+                android:text="10" />
+
+            <Button
+                android:id="@+id/btn_save_navigation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:backgroundTint="#4CAF50"
+                android:text="保存导航设置"
+                android:textColor="#FFFFFF" />
+
+            <!-- 底部留白，方便滚动到最后 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="32dp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+</FrameLayout>

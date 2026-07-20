@@ -12,143 +12,214 @@
         android:layout_height="match_parent"
         android:layout_weight="1" />
 
-    <!-- 右侧控制面板 - 带滚动 -->
-    <ScrollView
-        android:layout_width="280dp"
+    <!-- 右侧面板 -->
+    <LinearLayout
+        android:layout_width="320dp"
         android:layout_height="match_parent"
+        android:orientation="vertical"
         android:background="#CC000000"
-        android:scrollbars="vertical"
-        android:fillViewport="true">
+        android:padding="8dp">
 
+        <!-- Tab 切换按钮 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:gravity="center_horizontal">
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <Button
+                android:id="@+id/tab_control"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="自动驾驶"
-                android:textSize="24sp"
+                android:layout_weight="1"
+                android:text="控制"
                 android:textColor="#FFFFFF"
-                android:layout_marginBottom="16dp"/>
+                android:backgroundTint="#4CAF50" />
 
-            <TextView
-                android:layout_width="wrap_content"
+            <Button
+                android:id="@+id/tab_points"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:text="目标点"
                 android:textColor="#FFFFFF"
-                android:textSize="16sp"/>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-                <EditText
-                    android:id="@+id/et_target_lat"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:hint="纬度"
-                    android:inputType="numberDecimal"
-                    android:background="@android:drawable/editbox_background"
-                    android:padding="8dp"
-                    android:textColor="#000000"/>
-                <EditText
-                    android:id="@+id/et_target_lng"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:hint="经度"
-                    android:inputType="numberDecimal"
-                    android:background="@android:drawable/editbox_background"
-                    android:padding="8dp"
-                    android:textColor="#000000"/>
-            </LinearLayout>
-
-            <Button
-                android:id="@+id/btn_set_target_by_map"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="在地图上选点"
-                android:backgroundTint="#4A6A9A"
-                android:textColor="#FFFFFF"
-                android:layout_marginTop="8dp"/>
-
-            <Button
-                android:id="@+id/btn_start_nav"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="开始导航"
-                android:backgroundTint="#4CAF50"
-                android:textColor="#FFFFFF"
-                android:layout_marginTop="16dp"/>
-
-            <Button
-                android:id="@+id/btn_stop_nav"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="停止导航"
-                android:enabled="false"
-                android:backgroundTint="#F44336"
-                android:textColor="#FFFFFF"/>
-
-            <TextView
-                android:id="@+id/tv_status"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="状态: 未开始"
-                android:textColor="#00FFAA"
-                android:textSize="16sp"
-                android:layout_marginTop="16dp"/>
-
-            <TextView
-                android:id="@+id/tv_info"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:layout_marginTop="8dp"/>
-            <TextView
-                android:id="@+id/tv_speed"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="速度: 0.0 m/s"
-                android:textColor="#00FFAA"
-                android:textSize="16sp"
-                android:layout_marginTop="8dp"/>
-
-            <TextView
-                android:id="@+id/tv_turn"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="转向: 0.0 °/s"
-                android:textColor="#FFAA44"
-                android:textSize="16sp"/>
-            <TextView
-                android:id="@+id/tv_ble_status"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="BLE: 未连接"
-                android:textColor="#FFAA44"
-                android:textSize="14sp"
-                android:layout_marginTop="16dp"/>
-
-            <!-- 新增定位按钮 -->
-            <Button
-                android:id="@+id/btn_locate"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="📍 定位"
-                android:backgroundTint="#2196F3"
-                android:textColor="#FFFFFF"/>
-
+                android:backgroundTint="#4A6A9A" />
         </LinearLayout>
 
-    </ScrollView>
+        <!-- 内容容器 -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <!-- 控制页（可滑动） -->
+            <ScrollView
+                android:id="@+id/scroll_control"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:fillViewport="true"
+                android:visibility="visible">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal"
+                    android:padding="8dp">
+
+                    <TextView
+                        android:id="@+id/tv_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="状态: 未开始"
+                        android:textColor="#00FFAA"
+                        android:textSize="16sp"
+                        android:layout_marginTop="8dp"/>
+
+                    <TextView
+                        android:id="@+id/tv_current_target"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="目标: 无"
+                        android:textColor="#FFAA44"
+                        android:textSize="14sp"/>
+
+                    <TextView
+                        android:id="@+id/tv_info"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp"/>
+
+                    <TextView
+                        android:id="@+id/tv_speed"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="速度: 0.0 m/s"
+                        android:textColor="#00FFAA"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:id="@+id/tv_turn"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="转向: 0.0 °/s"
+                        android:textColor="#FFAA44"
+                        android:textSize="16sp"/>
+
+                    <TextView
+                        android:id="@+id/tv_ble_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BLE: 未连接"
+                        android:textColor="#FFAA44"
+                        android:textSize="14sp"
+                        android:layout_marginTop="12dp"/>
+
+                    <Button
+                        android:id="@+id/btn_start_nav"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="开始导航"
+                        android:backgroundTint="#4CAF50"
+                        android:textColor="#FFFFFF"
+                        android:layout_marginTop="12dp"/>
+
+                    <Button
+                        android:id="@+id/btn_stop_nav"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="停止导航"
+                        android:enabled="false"
+                        android:backgroundTint="#F44336"
+                        android:textColor="#FFFFFF"/>
+
+                    <Button
+                        android:id="@+id/btn_locate"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="📍 定位"
+                        android:backgroundTint="#2196F3"
+                        android:textColor="#FFFFFF"/>
+
+                </LinearLayout>
+            </ScrollView>
+
+            <!-- 目标点列表页（不可滑动，仅ListView内部滚动） -->
+            <LinearLayout
+                android:id="@+id/page_points"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:padding="8dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="目标点列表"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp"
+                    android:layout_marginBottom="8dp"/>
+
+                <ListView
+                    android:id="@+id/lv_waypoints"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:background="#33000000"
+                    android:padding="4dp"
+                    android:divider="#444444"
+                    android:dividerHeight="1dp"
+                    android:choiceMode="singleChoice"/>
+
+                <!-- 三个按钮并排 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <Button
+                        android:id="@+id/btn_add_current_pos"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="标记自己"
+                        android:textSize="12sp"
+                        android:backgroundTint="#4A6A9A"
+                        android:textColor="#FFFFFF"/>
+
+                    <Button
+                        android:id="@+id/btn_delete_selected"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="删除选中"
+                        android:textSize="12sp"
+                        android:backgroundTint="#F44336"
+                        android:textColor="#FFFFFF"
+                        android:layout_marginStart="4dp"/>
+
+                    <Button
+                        android:id="@+id/btn_clear_points"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="清空所有"
+                        android:textSize="12sp"
+                        android:backgroundTint="#FF5722"
+                        android:textColor="#FFFFFF"
+                        android:layout_marginStart="4dp"/>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </FrameLayout>
+
+    </LinearLayout>
 
 </LinearLayout>
