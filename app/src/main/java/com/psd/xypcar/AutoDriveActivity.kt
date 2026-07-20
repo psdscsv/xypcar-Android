@@ -9,8 +9,6 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -23,6 +21,10 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.amap.api.location.AMapLocation
+import com.amap.api.location.AMapLocationClient
+import com.amap.api.location.AMapLocationClientOption
+import com.amap.api.location.AMapLocationListener
 import com.amap.api.maps.AMap
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
@@ -33,7 +35,7 @@ import com.psd.xypcar.control.BLEController
 import java.util.*
 
 class AutoDriveActivity : AppCompatActivity(),
-    LocationListener,
+    AMapLocationListener,
     SensorEventListener {
 
     // ---------- UI 组件 ----------
@@ -57,9 +59,9 @@ class AutoDriveActivity : AppCompatActivity(),
     private var targetLatLon: LatLonPoint? = null
     private var isNavigating = false
 
-    // ---------- 定位 ----------
-    private lateinit var locationManager: LocationManager
-    private var currentLocation: Location? = null
+    // ---------- 高德定位 ----------
+    private lateinit var locationClient: AMapLocationClient
+    private var currentLocation: AMapLocation? = null
     private var isFirstLocation = true
 
     // ---------- 传感器 ----------
@@ -79,6 +81,11 @@ class AutoDriveActivity : AppCompatActivity(),
     private var maxTurn = 50f
     private val targetSpeed = 1.5f
     private val stopDistance = 0.5f
+
+    // ---------- 地图方向线 ----------
+    private var targetDirectionLine: Polyline? = null
+    private var headingLine: Polyline? = null
+    private val headingLineLength = 30.0
 
     // ---------- 生命周期 ----------
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -162,10 +169,20 @@ class AutoDriveActivity : AppCompatActivity(),
             }
         })
 
-        // ---------- 定位管理 ----------
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        // ---------- 初始化高德定位 ----------
+        locationClient = AMapLocationClient(applicationContext)
+        val option = AMapLocationClientOption()
+        option.locationMode = AMapLocationClientOption.AMapLocationMode.Hight_Accuracy
+        option.isOnceLocation = false
+        option.interval = 1000
+        option.isNeedAddress = false
+        option.isSensorEnable = true
+        locationClient.setLocationOption(option)
+        locationClient.setLocationListener(this)
+
+        // 检查权限并启动定位
         if (checkLocationPermission()) {
-            requestLocationUpdates()
+            locationClient.startLocation()
         } else {
             requestLocationPermissions()
         }
@@ -177,6 +194,7 @@ class AutoDriveActivity : AppCompatActivity(),
             etTargetLng.setText(latLng.longitude.toString())
             aMap.clear()
             addTargetMarker()
+            updateDirectionLinesFromCurrentLocation()
             Toast.makeText(this, "目标点已设置", Toast.LENGTH_SHORT).show()
         }
 
@@ -188,6 +206,7 @@ class AutoDriveActivity : AppCompatActivity(),
                 targetLatLon = LatLonPoint(lat, lng)
                 aMap.clear()
                 addTargetMarker()
+                updateDirectionLinesFromCurrentLocation()
                 Toast.makeText(this, "目标点已设置", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "请输入有效坐标", Toast.LENGTH_SHORT).show()
@@ -218,6 +237,26 @@ class AutoDriveActivity : AppCompatActivity(),
         connectBle()
     }
 
+    // ---------- 高德定位回调 ----------
+    override fun onLocationChanged(location: AMapLocation?) {
+        if (location != null && location.errorCode == 0) {
+            currentLocation = location
+            if (isFirstLocation) {
+                isFirstLocation = false
+                moveToMyLocation()
+            }
+            // 定位更新时刷新方向线
+            updateDirectionLinesFromCurrentLocation()
+        } else {
+            // 定位失败
+            val errCode = location?.errorCode ?: -1
+            val errInfo = location?.errorInfo ?: "未知错误"
+            if (location != null && errCode != 0) {
+                // 只提示一次，避免频繁弹窗
+            }
+        }
+    }
+
     // ---------- 传感器回调 ----------
     override fun onSensorChanged(event: SensorEvent?) {
         event?.let {
@@ -225,6 +264,7 @@ class AutoDriveActivity : AppCompatActivity(),
                 Sensor.TYPE_ORIENTATION -> {
                     deviceBearing = it.values[0]
                     if (deviceBearing < 0) deviceBearing += 360f
+                    updateDirectionLinesFromCurrentLocation()
                 }
                 Sensor.TYPE_ROTATION_VECTOR -> {
                     val rotationMatrix = FloatArray(9)
@@ -233,6 +273,7 @@ class AutoDriveActivity : AppCompatActivity(),
                     SensorManager.getOrientation(rotationMatrix, orientation)
                     deviceBearing = Math.toDegrees(orientation[0].toDouble()).toFloat()
                     if (deviceBearing < 0) deviceBearing += 360f
+                    updateDirectionLinesFromCurrentLocation()
                 }
             }
         }
@@ -288,25 +329,21 @@ class AutoDriveActivity : AppCompatActivity(),
         ActivityCompat.requestPermissions(this, perms, 1003)
     }
 
-    private fun requestLocationUpdates() {
-        if (checkLocationPermission()) {
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1f, this)
-            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000, 1f, this)
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            1002 -> if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                locationClient.startLocation()
+            } else {
+                Toast.makeText(this, "需要位置权限", Toast.LENGTH_SHORT).show()
+            }
+            1003 -> if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                connectBle()
+            } else {
+                Toast.makeText(this, "需要蓝牙权限", Toast.LENGTH_SHORT).show()
+            }
         }
     }
-
-    // ---------- LocationListener ----------
-    override fun onLocationChanged(location: Location) {
-        currentLocation = location
-        if (isFirstLocation) {
-            isFirstLocation = false
-            moveToMyLocation()
-        }
-    }
-
-    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-    override fun onProviderEnabled(provider: String) {}
-    override fun onProviderDisabled(provider: String) {}
 
     // ---------- 移动到我的位置 ----------
     private fun moveToMyLocation() {
@@ -327,6 +364,18 @@ class AutoDriveActivity : AppCompatActivity(),
                 .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)))
             aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(it.latitude, it.longitude), 15f))
         }
+    }
+
+    // ---------- 刷新方向线 ----------
+    private fun updateDirectionLinesFromCurrentLocation() {
+        val target = targetLatLon ?: return
+        val currentLoc = currentLocation ?: return
+
+        val currentLatLng = LatLng(currentLoc.latitude, currentLoc.longitude)
+        val targetLatLng = LatLng(target.latitude, target.longitude)
+        val bearing = if (deviceBearing != 0f) deviceBearing else currentLoc.bearing
+
+        updateDirectionLines(currentLatLng, targetLatLng, bearing)
     }
 
     // ---------- 导航控制 ----------
@@ -368,11 +417,9 @@ class AutoDriveActivity : AppCompatActivity(),
         val targetLatLng = LatLng(target.latitude, target.longitude)
         val currentLatLng = LatLng(currentLoc.latitude, currentLoc.longitude)
 
-        // 计算距离（米）
         val distance = distanceBetween(currentLoc.latitude, currentLoc.longitude,
             target.latitude, target.longitude)
 
-        // 如果到达目标点
         if (distance < stopDistance) {
             bleController.sendControl(0f, 0f, stop = true)
             tvStatus.text = "状态: 到达目标点"
@@ -383,21 +430,19 @@ class AutoDriveActivity : AppCompatActivity(),
                 tvSpeed.text = "速度: 0.0 m/s"
                 tvTurn.text = "转向: 0.0 °/s"
             }
+            clearDirectionLines()
             return
         }
 
-        // 计算目标方位角（从当前位置到目标点）
         val targetBearing = bearingBetween(currentLoc.latitude, currentLoc.longitude,
             target.latitude, target.longitude)
 
-        // 当前航向：优先使用传感器，不可用时回退到GPS bearing
         val currentBearing = if (deviceBearing != 0f) {
             deviceBearing
         } else {
-            if (currentLoc.hasBearing()) currentLoc.bearing else 0f
+            if (currentLoc.bearing != 0f) currentLoc.bearing else 0f
         }
 
-        // 计算转向差
         var turnDiff = targetBearing - currentBearing
         if (turnDiff > 180) turnDiff -= 360
         if (turnDiff < -180) turnDiff += 360
@@ -405,22 +450,65 @@ class AutoDriveActivity : AppCompatActivity(),
         val maxTurnDiff = 45f
         val turnValue = (turnDiff / maxTurnDiff).coerceIn(-1f, 1f)
 
-        // 速度：距离越近越慢
         val speedFactor = if (distance > 5f) 1f else (distance / 5f).coerceIn(0.2f, 1f)
         val speed = targetSpeed * speedFactor
 
-        // 发送控制指令
         bleController.sendControl(speed, turnValue * maxTurn, stop = false)
 
-        // 更新UI显示
         runOnUiThread {
             tvSpeed.text = String.format(Locale.US, "速度: %.2f m/s", speed)
             tvTurn.text = String.format(Locale.US, "转向: %.1f °/s", turnValue * maxTurn)
             tvInfo.text = String.format(Locale.US, "距离: %.1f m  方位: %.1f°", distance, targetBearing)
         }
+
+        updateDirectionLines(currentLatLng, targetLatLng, currentBearing)
     }
 
-    // ---------- 停止导航 ----------
+    // ---------- 更新方向线 ----------
+    private fun updateDirectionLines(currentPos: LatLng, targetPos: LatLng, heading: Float) {
+        targetDirectionLine?.remove()
+        headingLine?.remove()
+
+        targetDirectionLine = aMap.addPolyline(
+            PolylineOptions()
+                .add(currentPos, targetPos)
+                .color(Color.argb(255, 255, 0, 0))
+                .width(6f)
+                .setDottedLine(true)
+                .geodesic(true)
+        )
+
+        val endPoint = calculateDestination(currentPos.latitude, currentPos.longitude,
+            heading, headingLineLength)
+        headingLine = aMap.addPolyline(
+            PolylineOptions()
+                .add(currentPos, endPoint)
+                .color(Color.argb(255, 0, 255, 0))
+                .width(6f)
+                .geodesic(true)
+        )
+    }
+
+    private fun clearDirectionLines() {
+        targetDirectionLine?.remove()
+        targetDirectionLine = null
+        headingLine?.remove()
+        headingLine = null
+    }
+
+    private fun calculateDestination(lat: Double, lng: Double, bearing: Float, distanceMeters: Double): LatLng {
+        val R = 6371000.0
+        val br = Math.toRadians(bearing.toDouble())
+        val lat1 = Math.toRadians(lat)
+        val lon1 = Math.toRadians(lng)
+        val d = distanceMeters / R
+
+        val lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(br))
+        val lon2 = lon1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(lat1), Math.cos(d) - Math.sin(lat1) * Math.sin(lat2))
+
+        return LatLng(Math.toDegrees(lat2), Math.toDegrees(lon2))
+    }
+
     private fun stopNavigation() {
         isNavigating = false
         navRunnable?.let { handler.removeCallbacks(it) }
@@ -433,9 +521,9 @@ class AutoDriveActivity : AppCompatActivity(),
             tvSpeed.text = "速度: 0.0 m/s"
             tvTurn.text = "转向: 0.0 °/s"
         }
+        clearDirectionLines()
     }
 
-    // ---------- 辅助工具 ----------
     private fun distanceBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
         val results = FloatArray(1)
         Location.distanceBetween(lat1, lng1, lat2, lng2, results)
@@ -445,10 +533,9 @@ class AutoDriveActivity : AppCompatActivity(),
     private fun bearingBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
         val results = FloatArray(3)
         Location.distanceBetween(lat1, lng1, lat2, lng2, results)
-        return results[1] // 初始方位角
+        return results[1]
     }
 
-    // ---------- 生命周期 ----------
     override fun onResume() {
         super.onResume()
         mapView.onResume()
@@ -462,27 +549,10 @@ class AutoDriveActivity : AppCompatActivity(),
     override fun onDestroy() {
         super.onDestroy()
         mapView.onDestroy()
+        locationClient.stopLocation()
+        locationClient.onDestroy()
         bleController.disconnect()
         handler.removeCallbacksAndMessages(null)
         sensorManager.unregisterListener(this)
-        if (checkLocationPermission()) {
-            locationManager.removeUpdates(this)
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        when (requestCode) {
-            1002 -> if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                requestLocationUpdates()
-            } else {
-                Toast.makeText(this, "需要位置权限", Toast.LENGTH_SHORT).show()
-            }
-            1003 -> if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                connectBle()
-            } else {
-                Toast.makeText(this, "需要蓝牙权限", Toast.LENGTH_SHORT).show()
-            }
-        }
     }
 }
