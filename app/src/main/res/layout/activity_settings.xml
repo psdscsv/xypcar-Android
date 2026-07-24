@@ -257,7 +257,6 @@
                 android:text="导航最大速度 (m/s)"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
-
             <EditText
                 android:id="@+id/et_nav_max_speed"
                 android:layout_width="match_parent"
@@ -275,7 +274,6 @@
                 android:text="导航最大转向 (°/s)"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
-
             <EditText
                 android:id="@+id/et_nav_max_turn"
                 android:layout_width="match_parent"
@@ -293,7 +291,6 @@
                 android:text="到达距离 (米)"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
-
             <EditText
                 android:id="@+id/et_arrival_distance"
                 android:layout_width="match_parent"
@@ -302,6 +299,39 @@
                 android:inputType="numberDecimal"
                 android:padding="10dp"
                 android:text="10" />
+
+            <!-- ===== 新增：陀螺仪校准参数 ===== -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="校准稳定时间 (秒)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_calibration_time"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:inputType="numberDecimal"
+                android:padding="10dp"
+                android:text="2.0" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="校准角度范围 (度)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+            <EditText
+                android:id="@+id/et_calibration_angle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:inputType="numberDecimal"
+                android:padding="10dp"
+                android:text="5.0" />
 
             <Button
                 android:id="@+id/btn_save_navigation"
@@ -312,7 +342,6 @@
                 android:text="保存导航设置"
                 android:textColor="#FFFFFF" />
 
-            <!-- 底部留白，方便滚动到最后 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="32dp" />

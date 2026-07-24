@@ -37,7 +37,7 @@ class AutoDriveActivity : AppCompatActivity(),
     AMapLocationListener,
     SensorEventListener {
 
-    // ---------- UI 组件 ----------
+    // UI 组件
     private lateinit var mapView: MapView
     private lateinit var aMap: AMap
     private lateinit var bleController: BLEController
@@ -56,51 +56,56 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var tvTurn: TextView
     private lateinit var btnLocate: Button
 
-    // Tab 按钮
     private lateinit var tabControl: Button
     private lateinit var tabPoints: Button
     private lateinit var scrollControl: ScrollView
     private lateinit var pagePoints: LinearLayout
 
-    // ---------- 多点导航数据 ----------
+    // 数据
     private val waypoints = mutableListOf<LatLonPoint>()
     private val waypointMarkers = mutableListOf<Marker>()
     private val waypointCircles = mutableListOf<Circle>()
     private var currentTargetIndex = 0
     private var isNavigating = false
 
-    // ---------- 新增：列表选中高亮索引 ----------
-    private var selectedMarkerIndex = -1   // -1 表示无高亮
+    private var selectedMarkerIndex = -1
 
     private lateinit var waypointAdapter: ArrayAdapter<String>
     private val waypointDisplayList = mutableListOf<String>()
 
-    // ---------- 高德定位 ----------
+    // 定位
     private lateinit var locationClient: AMapLocationClient
     private var currentLocation: AMapLocation? = null
     private var isFirstLocation = true
 
-    // ---------- 传感器 ----------
+    // 传感器
     private lateinit var sensorManager: SensorManager
     private var deviceBearing = 0f
 
-    // ---------- 导航循环 ----------
+    // 导航循环
     private val handler = Handler(Looper.getMainLooper())
     private var navRunnable: Runnable? = null
     private val navInterval = 100L
 
-    // ---------- BLE ----------
     private var isBleConnected = false
 
-    // ---------- 控制参数（导航独立） ----------
+    // 导航参数
     private var navMaxSpeed = 1.5f
     private var navMaxTurn = 50f
     private var targetArrivalDistance = 10f
+    // 校准参数
+    private var calibrationTime = 2.0f      // 秒
+    private var calibrationAngle = 5.0f     // 度
 
-    // ---------- 当前目标高亮圆圈 ----------
     private var targetCircle: Circle? = null
 
-    // ---------- 地图绘制元素 ----------
+    // 校准状态
+    private var isCalibrating = false
+    private val angleHistory = mutableListOf<Float>()   // 存储采样角度
+    private val sampleInterval = 200L        // 采样间隔（毫秒）
+    private var calibrationRunnable: Runnable? = null
+
+    // 地图线条
     private var headingLine: Polyline? = null
     private var pathLine: Polyline? = null
     private var guideLine: Polyline? = null
@@ -158,7 +163,6 @@ class AutoDriveActivity : AppCompatActivity(),
         lvWaypoints.adapter = waypointAdapter
         lvWaypoints.choiceMode = ListView.CHOICE_MODE_SINGLE
 
-        // ========== 新增：列表点击事件，高亮地图 Marker ==========
         lvWaypoints.setOnItemClickListener { _, _, position, _ ->
             selectWaypoint(position)
         }
@@ -171,6 +175,8 @@ class AutoDriveActivity : AppCompatActivity(),
         navMaxSpeed = prefs.getFloat("nav_max_speed", 1.5f)
         navMaxTurn = prefs.getFloat("nav_max_turn", 50f)
         targetArrivalDistance = prefs.getFloat("arrival_distance", 10f)
+        calibrationTime = prefs.getFloat("calibration_time", 2.0f)
+        calibrationAngle = prefs.getFloat("calibration_angle", 5.0f)
         val deviceName = prefs.getString("device_name", "ESP32_Car") ?: "ESP32_Car"
 
         // 传感器
@@ -205,7 +211,7 @@ class AutoDriveActivity : AppCompatActivity(),
                     isBleConnected = false
                     tvBleStatus.text = "BLE: 未连接"
                     tvBleStatus.setTextColor(ContextCompat.getColor(this@AutoDriveActivity, android.R.color.holo_red_light))
-                    if (isNavigating) stopNavigation()
+                    if (isNavigating || isCalibrating) stopNavigation()
                 }
             }
         })
@@ -246,7 +252,6 @@ class AutoDriveActivity : AppCompatActivity(),
         btnDeleteSelected.setOnClickListener {
             val pos = lvWaypoints.checkedItemPosition
             if (pos != ListView.INVALID_POSITION && pos < waypoints.size) {
-                // 删除前，如果该点被高亮，清除高亮
                 if (selectedMarkerIndex == pos) {
                     clearSelectedMarker()
                 }
@@ -264,11 +269,9 @@ class AutoDriveActivity : AppCompatActivity(),
                 } else if (isNavigating && pos < currentTargetIndex) {
                     currentTargetIndex--
                 }
-                // 如果删除后列表还有数据，且被删除的是最后一个且之前高亮，重置高亮
                 if (selectedMarkerIndex >= waypoints.size) {
                     selectedMarkerIndex = -1
                 }
-                // 清除ListView选中状态
                 lvWaypoints.clearChoices()
                 Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show()
             } else {
@@ -277,7 +280,6 @@ class AutoDriveActivity : AppCompatActivity(),
         }
 
         btnClearPoints.setOnClickListener {
-            // 清空所有，重置高亮
             clearSelectedMarker()
             waypointMarkers.forEach { it.remove() }
             waypointMarkers.clear()
@@ -306,11 +308,17 @@ class AutoDriveActivity : AppCompatActivity(),
                 Toast.makeText(this, "位置未获取", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            startNavigation()
+            // 进入校准模式
+            startCalibration()
         }
 
         btnStopNav.setOnClickListener {
-            stopNavigation()
+            // 如果正在校准，取消校准；如果导航中，停止导航
+            if (isCalibrating) {
+                cancelCalibration()
+            } else if (isNavigating) {
+                stopNavigation()
+            }
         }
 
         btnLocate.setOnClickListener {
@@ -337,25 +345,21 @@ class AutoDriveActivity : AppCompatActivity(),
         scrollControl.smoothScrollTo(0, 0)
     }
 
-    // ========== 新增：选择目标点高亮 ==========
+    // ---------- 目标点高亮 ----------
     private fun selectWaypoint(position: Int) {
         if (position < 0 || position >= waypointMarkers.size) return
-        // 如果已经选中该点，不做任何事（也可以取消选中，但这里保持选中）
         if (selectedMarkerIndex == position) return
-        // 清除之前的高亮
         clearSelectedMarker()
-        // 设置新高亮
         val marker = waypointMarkers[position]
-        marker.setIcon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE)) // 蓝色高亮
+        marker.setIcon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE))
         selectedMarkerIndex = position
-        // 同步 ListView 选中项
         lvWaypoints.setItemChecked(position, true)
     }
 
     private fun clearSelectedMarker() {
         if (selectedMarkerIndex != -1 && selectedMarkerIndex < waypointMarkers.size) {
             val marker = waypointMarkers[selectedMarkerIndex]
-            marker.setIcon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)) // 恢复红色
+            marker.setIcon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED))
         }
         selectedMarkerIndex = -1
         lvWaypoints.clearChoices()
@@ -385,16 +389,15 @@ class AutoDriveActivity : AppCompatActivity(),
         val display = String.format(Locale.US, "%.6f, %.6f", point.latitude, point.longitude)
         waypointDisplayList.add(display)
         waypointAdapter.notifyDataSetChanged()
-        // 添加后自动选中最新点（可选）
         val newPos = waypoints.size - 1
         lvWaypoints.setItemChecked(newPos, true)
-        selectWaypoint(newPos) // 高亮地图
+        selectWaypoint(newPos)
 
         updatePathLine()
         updateGuideLine()
     }
 
-    // ---------- 更新路径线 ----------
+    // ---------- 线条更新 ----------
     private fun updatePathLine() {
         pathLine?.remove()
         pathLine = null
@@ -410,7 +413,6 @@ class AutoDriveActivity : AppCompatActivity(),
         )
     }
 
-    // ---------- 更新引导线 ----------
     private fun updateGuideLine() {
         guideLine?.remove()
         guideLine = null
@@ -434,7 +436,6 @@ class AutoDriveActivity : AppCompatActivity(),
         )
     }
 
-    // ---------- 更新高亮圆圈 ----------
     private fun updateHighlightCircle() {
         targetCircle?.remove()
         targetCircle = null
@@ -452,7 +453,6 @@ class AutoDriveActivity : AppCompatActivity(),
         )
     }
 
-    // ---------- 更新所有圆圈半径 ----------
     private fun updateAllCirclesRadius() {
         waypointCircles.forEach { it.radius = targetArrivalDistance.toDouble() }
         targetCircle?.radius = targetArrivalDistance.toDouble()
@@ -587,15 +587,89 @@ class AutoDriveActivity : AppCompatActivity(),
         aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
     }
 
+    // ---------- 校准逻辑 ----------
+    private fun startCalibration() {
+        if (isCalibrating || isNavigating) return
+        isCalibrating = true
+        angleHistory.clear()
+        tvStatus.text = "状态: 校准中..."
+        btnStartNav.isEnabled = false
+        btnStopNav.isEnabled = true
+        btnStopNav.text = "取消校准"
+
+        // 启动定时采样任务
+        calibrationRunnable = object : Runnable {
+            override fun run() {
+                if (!isCalibrating) return
+                // 添加当前角度
+                val currentAngle = deviceBearing
+                angleHistory.add(currentAngle)
+
+                // 计算需要的样本数（稳定时间 / 采样间隔）
+                val requiredSamples = (calibrationTime * 1000 / sampleInterval).toInt()
+                // 保持队列长度不超过 requiredSamples
+                while (angleHistory.size > requiredSamples) {
+                    angleHistory.removeAt(0)
+                }
+
+                // 如果队列已满，检查波动范围
+                if (angleHistory.size >= requiredSamples) {
+                    val min = angleHistory.minOrNull() ?: 0f
+                    val max = angleHistory.maxOrNull() ?: 0f
+                    val range = max - min
+                    if (range <= calibrationAngle) {
+                        // 校准通过，启动导航
+                        runOnUiThread {
+                            tvStatus.text = "状态: 校准通过，启动导航..."
+                            isCalibrating = false
+                            btnStopNav.text = "停止导航"
+                            startNavigation()
+                        }
+                        return
+                    } else {
+                        // 显示当前波动值
+                        runOnUiThread {
+                            tvStatus.text = String.format(Locale.US, "状态: 校准中 (波动 %.1f°)", range)
+                        }
+                    }
+                } else {
+                    runOnUiThread {
+                        tvStatus.text = "状态: 校准中... 请保持设备稳定"
+                    }
+                }
+
+                // 继续下一次采样
+                handler.postDelayed(this, sampleInterval)
+            }
+        }
+        handler.post(calibrationRunnable!!)
+    }
+
+    private fun cancelCalibration() {
+        isCalibrating = false
+        calibrationRunnable?.let { handler.removeCallbacks(it) }
+        calibrationRunnable = null
+        angleHistory.clear()
+        tvStatus.text = "状态: 已取消校准"
+        btnStartNav.isEnabled = true
+        btnStopNav.isEnabled = false
+        btnStopNav.text = "停止导航"
+    }
+
     // ---------- 导航控制 ----------
     private fun startNavigation() {
         if (waypoints.isEmpty()) return
         if (!isBleConnected) return
+
+        // 重置导航状态
         currentTargetIndex = 0
         isNavigating = true
+        isCalibrating = false  // 确保校准状态关闭
+
         tvStatus.text = "状态: 导航中..."
         btnStartNav.isEnabled = false
         btnStopNav.isEnabled = true
+        btnStopNav.text = "停止导航"
         updateTargetDisplay()
         updateGuideLine()
         updateHighlightCircle()
@@ -616,7 +690,6 @@ class AutoDriveActivity : AppCompatActivity(),
         handler.post(navRunnable!!)
     }
 
-    // ---------- 核心控制循环 ----------
     private fun performControl() {
         if (currentTargetIndex >= waypoints.size) {
             stopNavigation()
@@ -684,8 +757,13 @@ class AutoDriveActivity : AppCompatActivity(),
         }
     }
 
-    // ---------- 停止导航 ----------
+    // ---------- 停止导航（也用于取消校准） ----------
     private fun stopNavigation() {
+        // 如果正在校准，先取消
+        if (isCalibrating) {
+            cancelCalibration()
+            return
+        }
         isNavigating = false
         navRunnable?.let { handler.removeCallbacks(it) }
         navRunnable = null
@@ -694,6 +772,7 @@ class AutoDriveActivity : AppCompatActivity(),
         tvCurrentTarget.text = "目标: 无"
         btnStartNav.isEnabled = true
         btnStopNav.isEnabled = false
+        btnStopNav.text = "停止导航"
         runOnUiThread {
             tvSpeed.text = "速度: 0.0 m/s"
             tvTurn.text = "转向: 0.0 °/s"
@@ -737,10 +816,15 @@ class AutoDriveActivity : AppCompatActivity(),
         val newSpeed = prefs.getFloat("nav_max_speed", 1.5f)
         val newTurn = prefs.getFloat("nav_max_turn", 50f)
         val newDist = prefs.getFloat("arrival_distance", 10f)
-        if (newSpeed != navMaxSpeed || newTurn != navMaxTurn || newDist != targetArrivalDistance) {
+        val newTime = prefs.getFloat("calibration_time", 2.0f)
+        val newAngle = prefs.getFloat("calibration_angle", 5.0f)
+        if (newSpeed != navMaxSpeed || newTurn != navMaxTurn || newDist != targetArrivalDistance ||
+            newTime != calibrationTime || newAngle != calibrationAngle) {
             navMaxSpeed = newSpeed
             navMaxTurn = newTurn
             targetArrivalDistance = newDist
+            calibrationTime = newTime
+            calibrationAngle = newAngle
             updateAllCirclesRadius()
         }
     }
@@ -758,5 +842,6 @@ class AutoDriveActivity : AppCompatActivity(),
         bleController.disconnect()
         handler.removeCallbacksAndMessages(null)
         sensorManager.unregisterListener(this)
+        if (isCalibrating) cancelCalibration()
     }
 }

@@ -23,10 +23,13 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var etMaxSpeed: EditText
     private lateinit var etMaxTurn: EditText
 
-    // 导航新增
+    // 导航参数
     private lateinit var etNavMaxSpeed: EditText
     private lateinit var etNavMaxTurn: EditText
     private lateinit var etArrivalDistance: EditText
+    // 新增：校准参数
+    private lateinit var etCalibrationTime: EditText
+    private lateinit var etCalibrationAngle: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,47 +48,27 @@ class SettingsActivity : AppCompatActivity() {
         etMaxSpeed = findViewById(R.id.et_max_speed)
         etMaxTurn = findViewById(R.id.et_max_turn)
 
-        // 导航新增控件
         etNavMaxSpeed = findViewById(R.id.et_nav_max_speed)
         etNavMaxTurn = findViewById(R.id.et_nav_max_turn)
         etArrivalDistance = findViewById(R.id.et_arrival_distance)
+        etCalibrationTime = findViewById(R.id.et_calibration_time)
+        etCalibrationAngle = findViewById(R.id.et_calibration_angle)
 
         loadSettings()
 
-        // 退出按钮
-        findViewById<Button>(R.id.btn_exit).setOnClickListener {
-            finish()
-        }
+        findViewById<Button>(R.id.btn_exit).setOnClickListener { finish() }
 
-        findViewById<Button>(R.id.menu_bluetooth).setOnClickListener {
-            showPage(pageBluetooth)
-        }
-        findViewById<Button>(R.id.menu_control).setOnClickListener {
-            showPage(pageControl)
-        }
-        findViewById<Button>(R.id.menu_navigation).setOnClickListener {
-            showPage(pageNavigation)
-        }
+        findViewById<Button>(R.id.menu_bluetooth).setOnClickListener { showPage(pageBluetooth) }
+        findViewById<Button>(R.id.menu_control).setOnClickListener { showPage(pageControl) }
+        findViewById<Button>(R.id.menu_navigation).setOnClickListener { showPage(pageNavigation) }
 
-        findViewById<Button>(R.id.btn_back_main).setOnClickListener {
-            showPage(menuMain)
-        }
-        findViewById<Button>(R.id.btn_back_main_control).setOnClickListener {
-            showPage(menuMain)
-        }
-        findViewById<Button>(R.id.btn_back_main_nav).setOnClickListener {
-            showPage(menuMain)
-        }
+        findViewById<Button>(R.id.btn_back_main).setOnClickListener { showPage(menuMain) }
+        findViewById<Button>(R.id.btn_back_main_control).setOnClickListener { showPage(menuMain) }
+        findViewById<Button>(R.id.btn_back_main_nav).setOnClickListener { showPage(menuMain) }
 
-        findViewById<Button>(R.id.btn_save_bluetooth).setOnClickListener {
-            saveBluetooth()
-        }
-        findViewById<Button>(R.id.btn_save_control).setOnClickListener {
-            saveControl()
-        }
-        findViewById<Button>(R.id.btn_save_navigation).setOnClickListener {
-            saveNavigation()
-        }
+        findViewById<Button>(R.id.btn_save_bluetooth).setOnClickListener { saveBluetooth() }
+        findViewById<Button>(R.id.btn_save_control).setOnClickListener { saveControl() }
+        findViewById<Button>(R.id.btn_save_navigation).setOnClickListener { saveNavigation() }
     }
 
     private fun showPage(view: View) {
@@ -101,10 +84,11 @@ class SettingsActivity : AppCompatActivity() {
         etMaxSpeed.setText(prefs.getFloat("max_speed", 2.2f).toString())
         etMaxTurn.setText(prefs.getFloat("max_turn", 50f).toString())
 
-        // 加载导航参数
         etNavMaxSpeed.setText(prefs.getFloat("nav_max_speed", 1.5f).toString())
         etNavMaxTurn.setText(prefs.getFloat("nav_max_turn", 50f).toString())
         etArrivalDistance.setText(prefs.getFloat("arrival_distance", 10f).toString())
+        etCalibrationTime.setText(prefs.getFloat("calibration_time", 2.0f).toString())
+        etCalibrationAngle.setText(prefs.getFloat("calibration_angle", 5.0f).toString())
     }
 
     private fun saveBluetooth() {
@@ -132,6 +116,8 @@ class SettingsActivity : AppCompatActivity() {
             editor.putFloat("nav_max_speed", etNavMaxSpeed.text.toString().toFloat())
             editor.putFloat("nav_max_turn", etNavMaxTurn.text.toString().toFloat())
             editor.putFloat("arrival_distance", etArrivalDistance.text.toString().toFloat())
+            editor.putFloat("calibration_time", etCalibrationTime.text.toString().toFloat())
+            editor.putFloat("calibration_angle", etCalibrationAngle.text.toString().toFloat())
             editor.apply()
             Toast.makeText(this, "导航设置已保存", Toast.LENGTH_SHORT).show()
         } catch (e: NumberFormatException) {
