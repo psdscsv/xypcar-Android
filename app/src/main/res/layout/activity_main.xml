@@ -1,18 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<GridLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="horizontal"
-    android:gravity="center_vertical"
+    android:columnCount="2"
+    android:rowCount="2"
+    android:gravity="center"
     android:background="#1A1A2E"
     android:padding="48dp">
 
     <Button
         android:id="@+id/btn_remote"
         android:layout_width="0dp"
-        android:layout_height="80dp"
-        android:layout_weight="1"
-        android:layout_marginEnd="8dp"
+        android:layout_height="0dp"
+        android:layout_columnWeight="1"
+        android:layout_rowWeight="1"
+        android:layout_margin="8dp"
         android:text="🚗 遥控"
         android:textSize="28sp"
         android:backgroundTint="#FFAA44"
@@ -22,26 +24,42 @@
     <Button
         android:id="@+id/btn_auto_drive"
         android:layout_width="0dp"
-        android:layout_height="80dp"
-        android:layout_weight="1"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
-        android:text="🚀 自动驾驶"
+        android:layout_height="0dp"
+        android:layout_columnWeight="1"
+        android:layout_rowWeight="1"
+        android:layout_margin="8dp"
+        android:text="🚀 自动导航"
         android:textSize="28sp"
         android:backgroundTint="#FF5722"
         android:textColor="#FFFFFF"
         android:fontFamily="sans-serif-medium" />
 
     <Button
+        android:id="@+id/btn_connect"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_columnWeight="1"
+        android:layout_rowWeight="1"
+        android:layout_margin="8dp"
+        android:text="📡 远程连接"
+        android:textSize="28sp"
+        android:backgroundTint="#4A6A9A"
+        android:textColor="#FFFFFF"
+        android:fontFamily="sans-serif-medium" />
+
+    <Button
         android:id="@+id/btn_settings"
         android:layout_width="0dp"
-        android:layout_height="80dp"
-        android:layout_weight="1"
-        android:layout_marginStart="8dp"
+        android:layout_height="0dp"
+        android:layout_columnWeight="1"
+        android:layout_rowWeight="1"
+        android:layout_margin="8dp"
         android:text="⚙️ 设置"
         android:textSize="28sp"
         android:backgroundTint="#4A6A9A"
         android:textColor="#FFFFFF"
         android:fontFamily="sans-serif-medium" />
 
-</LinearLayout>
+
+
+</GridLayout>

@@ -27,14 +27,22 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var etNavMaxSpeed: EditText
     private lateinit var etNavMaxTurn: EditText
     private lateinit var etArrivalDistance: EditText
-    // 新增：校准参数
+
+    // 校准参数
     private lateinit var etCalibrationTime: EditText
     private lateinit var etCalibrationAngle: EditText
 
+    // 远程协助
+    private lateinit var etUsername: EditText
+    private lateinit var etServerHost: EditText
+    private lateinit var etServerPort: EditText
+    private lateinit var pageRemote: View
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN
+        )
         setContentView(R.layout.activity_settings)
 
         prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
@@ -54,6 +62,11 @@ class SettingsActivity : AppCompatActivity() {
         etCalibrationTime = findViewById(R.id.et_calibration_time)
         etCalibrationAngle = findViewById(R.id.et_calibration_angle)
 
+        pageRemote = findViewById(R.id.page_remote)
+        etUsername = findViewById(R.id.et_username)
+        etServerHost = findViewById(R.id.et_server_host)
+        etServerPort = findViewById(R.id.et_server_port)
+
         loadSettings()
 
         findViewById<Button>(R.id.btn_exit).setOnClickListener { finish() }
@@ -69,6 +82,9 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_save_bluetooth).setOnClickListener { saveBluetooth() }
         findViewById<Button>(R.id.btn_save_control).setOnClickListener { saveControl() }
         findViewById<Button>(R.id.btn_save_navigation).setOnClickListener { saveNavigation() }
+        findViewById<Button>(R.id.menu_remote).setOnClickListener { showPage(pageRemote) }
+        findViewById<Button>(R.id.btn_back_main_remote).setOnClickListener { showPage(menuMain) }
+        findViewById<Button>(R.id.btn_save_remote).setOnClickListener { saveRemote() }
     }
 
     private fun showPage(view: View) {
@@ -76,6 +92,7 @@ class SettingsActivity : AppCompatActivity() {
         pageBluetooth.visibility = View.GONE
         pageControl.visibility = View.GONE
         pageNavigation.visibility = View.GONE
+        pageRemote.visibility = View.GONE
         view.visibility = View.VISIBLE
     }
 
@@ -89,6 +106,19 @@ class SettingsActivity : AppCompatActivity() {
         etArrivalDistance.setText(prefs.getFloat("arrival_distance", 10f).toString())
         etCalibrationTime.setText(prefs.getFloat("calibration_time", 2.0f).toString())
         etCalibrationAngle.setText(prefs.getFloat("calibration_angle", 5.0f).toString())
+
+        etUsername.setText(prefs.getString("remote_username", "USER_001"))
+        etServerHost.setText(prefs.getString("remote_host", "32.tcp.cpolar.top"))
+        etServerPort.setText(prefs.getString("remote_port", "9999"))
+    }
+
+    private fun saveRemote() {
+        val editor = prefs.edit()
+        editor.putString("remote_username", etUsername.text.toString().trim())
+        editor.putString("remote_host", etServerHost.text.toString().trim())
+        editor.putString("remote_port", etServerPort.text.toString().trim())
+        editor.apply()
+        Toast.makeText(this, "远程设置已保存", Toast.LENGTH_SHORT).show()
     }
 
     private fun saveBluetooth() {

@@ -143,7 +143,14 @@
                         android:text="📍 定位"
                         android:backgroundTint="#2196F3"
                         android:textColor="#FFFFFF"/>
-
+                    <Button
+                        android:id="@+id/btn_remote_control"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="📡 远程控制"
+                        android:backgroundTint="#9C27B0"
+                        android:textColor="#FFFFFF"/>
                 </LinearLayout>
             </ScrollView>
 

@@ -16,9 +16,9 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
+            android:layout_marginBottom="24dp"
             android:gravity="center_vertical"
-            android:layout_marginBottom="24dp">
+            android:orientation="horizontal">
 
             <TextView
                 android:layout_width="0dp"
@@ -34,11 +34,11 @@
                 style="@style/Widget.AppCompat.Button.Borderless"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="✕"
-                android:textSize="24sp"
-                android:textColor="@color/text_primary"
+                android:background="?attr/selectableItemBackground"
                 android:padding="8dp"
-                android:background="?attr/selectableItemBackground" />
+                android:text="✕"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp" />
         </LinearLayout>
 
         <Button
@@ -92,139 +92,168 @@
             android:layout_height="1dp"
             android:background="#444" />
 
+        <!-- 远程设置菜单 -->
+        <Button
+            android:id="@+id/menu_remote"
+            style="@style/Widget.AppCompat.Button.Borderless"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="start|center_vertical"
+            android:padding="16dp"
+            android:text="📡远程设置"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#444" />
     </LinearLayout>
 
-    <!-- 子页面：蓝牙设置（LinearLayout，无滚动，内容少） -->
-    <LinearLayout
+    <!-- 子页面：蓝牙设置 -->
+    <ScrollView
         android:id="@+id/page_bluetooth"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
+        android:background="@color/bg_setting"
+        android:fillViewport="true"
         android:padding="16dp"
         android:visibility="gone">
 
-        <Button
-            android:id="@+id/btn_back_main"
-            style="@style/Widget.AppCompat.Button.Borderless"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="← 返回"
-            android:textColor="@color/text_primary"
-            android:textSize="18sp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp"
-            android:text="蓝牙设置"
-            android:textColor="@color/text_primary"
-            android:textSize="24sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="蓝牙设备名称"
-            android:textColor="@color/text_primary"
-            android:textSize="16sp" />
-
-        <EditText
-            android:id="@+id/et_device_name"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@android:drawable/editbox_background"
-            android:padding="10dp"
-            android:singleLine="true" />
+            android:orientation="vertical">
 
-        <Button
-            android:id="@+id/btn_save_bluetooth"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:backgroundTint="#4CAF50"
-            android:text="保存蓝牙设置"
-            android:textColor="#FFFFFF" />
-    </LinearLayout>
+            <Button
+                android:id="@+id/btn_back_main"
+                style="@style/Widget.AppCompat.Button.Borderless"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="← 返回"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp" />
 
-    <!-- 子页面：控制参数（LinearLayout，无滚动，内容少） -->
-    <LinearLayout
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp"
+                android:text="蓝牙设置"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="蓝牙设备名称"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/et_device_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:padding="10dp"
+                android:singleLine="true" />
+
+            <Button
+                android:id="@+id/btn_save_bluetooth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:backgroundTint="#4CAF50"
+                android:text="保存蓝牙设置"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+    </ScrollView>
+    <!-- 子页面：控制参数 -->
+    <ScrollView
         android:id="@+id/page_control"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
+        android:background="@color/bg_setting"
+        android:fillViewport="true"
         android:padding="16dp"
         android:visibility="gone">
 
-        <Button
-            android:id="@+id/btn_back_main_control"
-            style="@style/Widget.AppCompat.Button.Borderless"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="← 返回"
-            android:textColor="@color/text_primary"
-            android:textSize="18sp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp"
-            android:text="控制参数"
-            android:textColor="@color/text_primary"
-            android:textSize="24sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="最大速度 (m/s)"
-            android:textColor="@color/text_primary"
-            android:textSize="16sp" />
-
-        <EditText
-            android:id="@+id/et_max_speed"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@android:drawable/editbox_background"
-            android:inputType="numberDecimal"
-            android:padding="10dp" />
+            android:orientation="vertical">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="最大转向 (°/s)"
-            android:textColor="@color/text_primary"
-            android:textSize="16sp" />
+            <Button
+                android:id="@+id/btn_back_main_control"
+                style="@style/Widget.AppCompat.Button.Borderless"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="← 返回"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp" />
 
-        <EditText
-            android:id="@+id/et_max_turn"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@android:drawable/editbox_background"
-            android:inputType="numberDecimal"
-            android:padding="10dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp"
+                android:text="控制参数"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp"
+                android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btn_save_control"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:backgroundTint="#4CAF50"
-            android:text="保存控制参数"
-            android:textColor="#FFFFFF" />
-    </LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="最大速度 (m/s)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
 
+            <EditText
+                android:id="@+id/et_max_speed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:inputType="numberDecimal"
+                android:padding="10dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="最大转向 (°/s)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/et_max_turn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:inputType="numberDecimal"
+                android:padding="10dp" />
+
+            <Button
+                android:id="@+id/btn_save_control"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:backgroundTint="#4CAF50"
+                android:text="保存控制参数"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+    </ScrollView>
     <!-- 子页面：导航设置（ScrollView 包裹，支持垂直滚动） -->
     <ScrollView
         android:id="@+id/page_navigation"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp"
-        android:visibility="gone"
+        android:background="@color/bg_setting"
         android:fillViewport="true"
-        android:background="@color/bg_setting">
+        android:padding="16dp"
+        android:visibility="gone">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -257,6 +286,7 @@
                 android:text="导航最大速度 (m/s)"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
+
             <EditText
                 android:id="@+id/et_nav_max_speed"
                 android:layout_width="match_parent"
@@ -274,6 +304,7 @@
                 android:text="导航最大转向 (°/s)"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
+
             <EditText
                 android:id="@+id/et_nav_max_turn"
                 android:layout_width="match_parent"
@@ -291,6 +322,7 @@
                 android:text="到达距离 (米)"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
+
             <EditText
                 android:id="@+id/et_arrival_distance"
                 android:layout_width="match_parent"
@@ -308,6 +340,7 @@
                 android:text="校准稳定时间 (秒)"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
+
             <EditText
                 android:id="@+id/et_calibration_time"
                 android:layout_width="match_parent"
@@ -324,6 +357,7 @@
                 android:text="校准角度范围 (度)"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
+
             <EditText
                 android:id="@+id/et_calibration_angle"
                 android:layout_width="match_parent"
@@ -348,5 +382,98 @@
 
         </LinearLayout>
     </ScrollView>
+    <!-- 远程设置子页面 -->
+    <ScrollView
+        android:id="@+id/page_remote"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg_setting"
+        android:fillViewport="true"
+        android:padding="16dp"
+        android:visibility="gone">
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <Button
+                android:id="@+id/btn_back_main_remote"
+                style="@style/Widget.AppCompat.Button.Borderless"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="← 返回"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp"
+                android:text="远程设置"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="用户名 (设备标识)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/et_username"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:hint="留空则使用 Android ID"
+                android:padding="10dp"
+                android:singleLine="true" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="服务器地址"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/et_server_host"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:hint="例如：32.tcp.cpolar.top"
+                android:padding="10dp"
+                android:singleLine="true" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="端口"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/et_server_port"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:hint="例如：13648"
+                android:inputType="number"
+                android:padding="10dp" />
+
+            <Button
+                android:id="@+id/btn_save_remote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:backgroundTint="#4CAF50"
+                android:text="保存远程设置"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+    </ScrollView>
 </FrameLayout>

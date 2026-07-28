@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -31,13 +32,16 @@ import com.amap.api.maps.MapsInitializer
 import com.amap.api.maps.model.*
 import com.amap.api.services.core.LatLonPoint
 import com.psd.xypcar.control.BLEController
+import com.psd.xypcar.remote.RelayClient
+import kotlinx.coroutines.*
+import org.json.JSONObject
 import java.util.*
 
 class AutoDriveActivity : AppCompatActivity(),
     AMapLocationListener,
     SensorEventListener {
 
-    // UI 组件
+    // ---------- UI 组件 ----------
     private lateinit var mapView: MapView
     private lateinit var aMap: AMap
     private lateinit var bleController: BLEController
@@ -55,13 +59,15 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var tvSpeed: TextView
     private lateinit var tvTurn: TextView
     private lateinit var btnLocate: Button
+    private lateinit var btnRemoteControl: Button  // 新增：跳转远程控制
 
+    // Tab 按钮
     private lateinit var tabControl: Button
     private lateinit var tabPoints: Button
     private lateinit var scrollControl: ScrollView
     private lateinit var pagePoints: LinearLayout
 
-    // 数据
+    // ---------- 多点导航数据 ----------
     private val waypoints = mutableListOf<LatLonPoint>()
     private val waypointMarkers = mutableListOf<Marker>()
     private val waypointCircles = mutableListOf<Circle>()
@@ -73,39 +79,47 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var waypointAdapter: ArrayAdapter<String>
     private val waypointDisplayList = mutableListOf<String>()
 
-    // 定位
+    // ---------- 高德定位 ----------
     private lateinit var locationClient: AMapLocationClient
     private var currentLocation: AMapLocation? = null
     private var isFirstLocation = true
 
-    // 传感器
+    // ---------- 传感器 ----------
     private lateinit var sensorManager: SensorManager
     private var deviceBearing = 0f
 
-    // 导航循环
+    // ---------- 导航循环 ----------
     private val handler = Handler(Looper.getMainLooper())
     private var navRunnable: Runnable? = null
     private val navInterval = 100L
 
+    // ---------- BLE ----------
     private var isBleConnected = false
 
-    // 导航参数
+    // ---------- 控制参数（导航独立） ----------
     private var navMaxSpeed = 1.5f
     private var navMaxTurn = 50f
     private var targetArrivalDistance = 10f
-    // 校准参数
-    private var calibrationTime = 2.0f      // 秒
-    private var calibrationAngle = 5.0f     // 度
+    private var calibrationTime = 2.0f
+    private var calibrationAngle = 5.0f
 
     private var targetCircle: Circle? = null
 
-    // 校准状态
+    // ---------- 校准状态 ----------
     private var isCalibrating = false
-    private val angleHistory = mutableListOf<Float>()   // 存储采样角度
-    private val sampleInterval = 200L        // 采样间隔（毫秒）
+    private val angleHistory = mutableListOf<Float>()
+    private val sampleInterval = 200L
     private var calibrationRunnable: Runnable? = null
 
-    // 地图线条
+    // ---------- 远程控制 ----------
+    private var relayClient: RelayClient? = null
+    private var remoteTargetId: String = ""
+    private var remoteEnabled = false
+    private var statusSendRunnable: Runnable? = null
+    private val statusInterval = 1000L
+    private var remoteUsername: String = ""
+
+    // ---------- 地图线条 ----------
     private var headingLine: Polyline? = null
     private var pathLine: Polyline? = null
     private var guideLine: Polyline? = null
@@ -147,6 +161,7 @@ class AutoDriveActivity : AppCompatActivity(),
         tvSpeed = findViewById(R.id.tv_speed)
         tvTurn = findViewById(R.id.tv_turn)
         btnLocate = findViewById(R.id.btn_locate)
+        btnRemoteControl = findViewById(R.id.btn_remote_control)  // 新增
 
         tabControl = findViewById(R.id.tab_control)
         tabPoints = findViewById(R.id.tab_points)
@@ -178,6 +193,7 @@ class AutoDriveActivity : AppCompatActivity(),
         calibrationTime = prefs.getFloat("calibration_time", 2.0f)
         calibrationAngle = prefs.getFloat("calibration_angle", 5.0f)
         val deviceName = prefs.getString("device_name", "ESP32_Car") ?: "ESP32_Car"
+        remoteUsername = prefs.getString("remote_username", "") ?: ""
 
         // 传感器
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -233,14 +249,17 @@ class AutoDriveActivity : AppCompatActivity(),
             requestLocationPermissions()
         }
 
-        // 地图长按添加点
+        // ---------- 初始化远程控制 ----------
+        initRemoteControl()
+
+        // ---------- 地图长按添加点 ----------
         aMap.setOnMapLongClickListener { latLng ->
             val point = LatLonPoint(latLng.latitude, latLng.longitude)
             addWaypoint(point)
             Toast.makeText(this, "添加目标点 (${latLng.latitude}, ${latLng.longitude})", Toast.LENGTH_SHORT).show()
         }
 
-        // 按钮事件
+        // ---------- 按钮事件 ----------
         btnAddCurrentPos.setOnClickListener {
             currentLocation?.let { loc ->
                 val point = LatLonPoint(loc.latitude, loc.longitude)
@@ -308,12 +327,10 @@ class AutoDriveActivity : AppCompatActivity(),
                 Toast.makeText(this, "位置未获取", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            // 进入校准模式
             startCalibration()
         }
 
         btnStopNav.setOnClickListener {
-            // 如果正在校准，取消校准；如果导航中，停止导航
             if (isCalibrating) {
                 cancelCalibration()
             } else if (isNavigating) {
@@ -325,8 +342,62 @@ class AutoDriveActivity : AppCompatActivity(),
             moveToMyLocation()
         }
 
+        // 新增：跳转远程控制
+        btnRemoteControl.setOnClickListener {
+            startActivity(android.content.Intent(this, RemoteRelayActivity::class.java))
+        }
+
         connectBle()
         switchTab(true)
+    }
+
+    // ---------- 初始化远程控制 ----------
+    private fun initRemoteControl() {
+        val prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
+        val host = prefs.getString("remote_host", "") ?: ""
+        val port = prefs.getString("remote_port", "9999")?.toIntOrNull() ?: 9999
+
+        // 从 RemoteControlHelper 获取已有的 relayClient（如果已连接）
+        if (RemoteControlHelper.relayClient != null && RemoteControlHelper.targetId.isNotEmpty()) {
+            relayClient = RemoteControlHelper.relayClient
+            remoteTargetId = RemoteControlHelper.targetId
+            if (relayClient?.isConnected() == true) {
+                remoteEnabled = true
+                startStatusSending()
+                Toast.makeText(this, "远程已连接", Toast.LENGTH_SHORT).show()
+            }
+        } else if (host.isNotEmpty() && remoteUsername.isNotEmpty()) {
+            // 如果配置了远程信息，创建客户端但先不自动连接（让用户通过远程界面连接）
+            relayClient = RelayClient(
+                serverHost = host,
+                serverPort = port,
+                onMessageReceived = { from, payload ->
+                    if (from == remoteTargetId || remoteTargetId.isEmpty()) {
+                        handleRemoteCommand(payload)
+                    }
+                },
+                onStatusChanged = { status ->
+                    runOnUiThread {
+                        if (status.contains("注册成功")) {
+                            remoteEnabled = true
+                            // 保存到帮助类
+                            RemoteControlHelper.relayClient = relayClient
+                            RemoteControlHelper.targetId = remoteTargetId
+                            startStatusSending()
+                            Toast.makeText(this@AutoDriveActivity, "远程连接成功", Toast.LENGTH_SHORT).show()
+                        } else if (status.contains("断开") || status.contains("错误")) {
+                            remoteEnabled = false
+                            stopStatusSending()
+                        }
+                    }
+                }
+            )
+            // 可选择自动连接（如果需要，取消注释）
+            // CoroutineScope(Dispatchers.IO).launch {
+            //     val id = if (remoteUsername.isNotEmpty()) remoteUsername else Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+            //     relayClient?.connect(id)
+            // }
+        }
     }
 
     // ---------- Tab 切换 ----------
@@ -597,28 +668,22 @@ class AutoDriveActivity : AppCompatActivity(),
         btnStopNav.isEnabled = true
         btnStopNav.text = "取消校准"
 
-        // 启动定时采样任务
         calibrationRunnable = object : Runnable {
             override fun run() {
                 if (!isCalibrating) return
-                // 添加当前角度
                 val currentAngle = deviceBearing
                 angleHistory.add(currentAngle)
 
-                // 计算需要的样本数（稳定时间 / 采样间隔）
                 val requiredSamples = (calibrationTime * 1000 / sampleInterval).toInt()
-                // 保持队列长度不超过 requiredSamples
                 while (angleHistory.size > requiredSamples) {
                     angleHistory.removeAt(0)
                 }
 
-                // 如果队列已满，检查波动范围
                 if (angleHistory.size >= requiredSamples) {
                     val min = angleHistory.minOrNull() ?: 0f
                     val max = angleHistory.maxOrNull() ?: 0f
                     val range = max - min
                     if (range <= calibrationAngle) {
-                        // 校准通过，启动导航
                         runOnUiThread {
                             tvStatus.text = "状态: 校准通过，启动导航..."
                             isCalibrating = false
@@ -627,7 +692,6 @@ class AutoDriveActivity : AppCompatActivity(),
                         }
                         return
                     } else {
-                        // 显示当前波动值
                         runOnUiThread {
                             tvStatus.text = String.format(Locale.US, "状态: 校准中 (波动 %.1f°)", range)
                         }
@@ -637,8 +701,6 @@ class AutoDriveActivity : AppCompatActivity(),
                         tvStatus.text = "状态: 校准中... 请保持设备稳定"
                     }
                 }
-
-                // 继续下一次采样
                 handler.postDelayed(this, sampleInterval)
             }
         }
@@ -661,10 +723,9 @@ class AutoDriveActivity : AppCompatActivity(),
         if (waypoints.isEmpty()) return
         if (!isBleConnected) return
 
-        // 重置导航状态
         currentTargetIndex = 0
         isNavigating = true
-        isCalibrating = false  // 确保校准状态关闭
+        isCalibrating = false
 
         tvStatus.text = "状态: 导航中..."
         btnStartNav.isEnabled = false
@@ -757,9 +818,8 @@ class AutoDriveActivity : AppCompatActivity(),
         }
     }
 
-    // ---------- 停止导航（也用于取消校准） ----------
+    // ---------- 停止导航 ----------
     private fun stopNavigation() {
-        // 如果正在校准，先取消
         if (isCalibrating) {
             cancelCalibration()
             return
@@ -780,6 +840,86 @@ class AutoDriveActivity : AppCompatActivity(),
         targetCircle?.remove()
         targetCircle = null
         updateGuideLine()
+    }
+
+    // ---------- 远程控制：发送状态 ----------
+    private fun startStatusSending() {
+        statusSendRunnable = object : Runnable {
+            override fun run() {
+                if (!remoteEnabled || relayClient == null || relayClient?.isConnected() != true) {
+                    return
+                }
+                sendCurrentStatus()
+                handler.postDelayed(this, statusInterval)
+            }
+        }
+        handler.post(statusSendRunnable!!)
+    }
+
+    private fun stopStatusSending() {
+        statusSendRunnable?.let { handler.removeCallbacks(it) }
+        statusSendRunnable = null
+    }
+
+    private fun sendCurrentStatus() {
+        val loc = currentLocation ?: return
+        try {
+            val json = JSONObject().apply {
+                put("type", "status")
+                put("lat", loc.latitude)
+                put("lng", loc.longitude)
+                put("bearing", if (deviceBearing != 0f) deviceBearing else loc.bearing)
+                put("speed", navMaxSpeed)
+                put("nav_status", if (isNavigating) "navigating" else "idle")
+            }
+            val payload = json.toString()
+            CoroutineScope(Dispatchers.IO).launch {
+                relayClient?.sendMessage(remoteTargetId, payload)
+            }
+        } catch (e: Exception) {
+            // 忽略发送错误
+        }
+    }
+
+    // ---------- 远程控制：接收指令 ----------
+    private fun handleRemoteCommand(payload: String) {
+        try {
+            val json = JSONObject(payload)
+            val type = json.optString("type")
+            when (type) {
+                "remote" -> {
+                    val speed = json.optDouble("speed", 0.0).toFloat()
+                    val turn = json.optDouble("turn", 0.0).toFloat()
+                    runOnUiThread {
+                        bleController.sendControl(speed, turn, stop = false)
+                        tvSpeed.text = String.format("速度: %.2f m/s", speed)
+                        tvTurn.text = String.format("转向: %.1f °/s", turn)
+                        tvInfo.text = "远程控制中..."
+                    }
+                }
+                "start_auto" -> {
+                    runOnUiThread {
+                        if (!isNavigating && !isCalibrating) {
+                            startNavigation()
+                            Toast.makeText(this, "远程启动导航", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                "stop_auto" -> {
+                    runOnUiThread {
+                        if (isNavigating || isCalibrating) {
+                            stopNavigation()
+                            Toast.makeText(this, "远程停止导航", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                else -> {
+                    // 未知指令
+                }
+            }
+        } catch (e: Exception) {
+            // 忽略解析错误
+        }
     }
 
     // ---------- 辅助计算 ----------
@@ -840,8 +980,15 @@ class AutoDriveActivity : AppCompatActivity(),
         locationClient.stopLocation()
         locationClient.onDestroy()
         bleController.disconnect()
+        stopStatusSending()
+        // 不要断开 relayClient，因为可能被 RemoteRelayActivity 共享
         handler.removeCallbacksAndMessages(null)
         sensorManager.unregisterListener(this)
-        if (isCalibrating) cancelCalibration()
     }
+}
+
+// ---------- 远程控制帮助类 ----------
+object RemoteControlHelper {
+    var relayClient: RelayClient? = null
+    var targetId: String = ""
 }
