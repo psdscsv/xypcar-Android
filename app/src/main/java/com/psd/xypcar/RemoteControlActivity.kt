@@ -53,7 +53,7 @@ class RemoteControlActivity : AppCompatActivity() {
         // 隐藏状态栏和标题栏（如果主题已处理标题栏，这里只处理状态栏）
         window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN)
-        setContentView(R.layout.activity_remotecontrol)
+        setContentView(R.layout.activity_remote_control)
 
         leftJoystick = findViewById(R.id.left_joystick)
         rightJoystick = findViewById(R.id.right_joystick)

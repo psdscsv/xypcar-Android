@@ -36,7 +36,7 @@
         <!-- 高德地图 API Key -->
         <meta-data
             android:name="com.amap.api.v2.apikey"
-            android:value="${AMAP_KEY}"/>
+            android:value="${AMAP_KEY}" />
 
         <!-- 主启动页 -->
         <activity
@@ -77,7 +77,12 @@
             android:parentActivityName=".AutoDriveActivity"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/AppTheme" />
-
+        <activity
+            android:name=".RemoteRelayActivity"
+            android:label="远程控制"
+            android:parentActivityName=".AutoDriveActivity"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/AppTheme" />
     </application>
 
 </manifest>

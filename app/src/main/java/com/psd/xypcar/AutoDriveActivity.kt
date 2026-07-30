@@ -34,6 +34,7 @@ import com.amap.api.services.core.LatLonPoint
 import com.psd.xypcar.control.BLEController
 import com.psd.xypcar.remote.RelayClient
 import kotlinx.coroutines.*
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.*
 
@@ -59,7 +60,7 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var tvSpeed: TextView
     private lateinit var tvTurn: TextView
     private lateinit var btnLocate: Button
-    private lateinit var btnRemoteControl: Button  // 新增：跳转远程控制
+    private lateinit var btnRemoteControl: Button
 
     // Tab 按钮
     private lateinit var tabControl: Button
@@ -96,7 +97,7 @@ class AutoDriveActivity : AppCompatActivity(),
     // ---------- BLE ----------
     private var isBleConnected = false
 
-    // ---------- 控制参数（导航独立） ----------
+    // ---------- 控制参数 ----------
     private var navMaxSpeed = 1.5f
     private var navMaxTurn = 50f
     private var targetArrivalDistance = 10f
@@ -125,7 +126,10 @@ class AutoDriveActivity : AppCompatActivity(),
     private var guideLine: Polyline? = null
     private val headingLineLength = 30.0
 
-    // ---------- 生命周期 ----------
+    // ---------- 远程位置标记 ----------
+    private var remoteLocationMarker: Marker? = null
+    private var isRemoteControlled = false  // 标记是否被远程操控
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(
@@ -161,7 +165,7 @@ class AutoDriveActivity : AppCompatActivity(),
         tvSpeed = findViewById(R.id.tv_speed)
         tvTurn = findViewById(R.id.tv_turn)
         btnLocate = findViewById(R.id.btn_locate)
-        btnRemoteControl = findViewById(R.id.btn_remote_control)  // 新增
+        btnRemoteControl = findViewById(R.id.btn_remote_control)
 
         tabControl = findViewById(R.id.tab_control)
         tabPoints = findViewById(R.id.tab_points)
@@ -271,27 +275,7 @@ class AutoDriveActivity : AppCompatActivity(),
         btnDeleteSelected.setOnClickListener {
             val pos = lvWaypoints.checkedItemPosition
             if (pos != ListView.INVALID_POSITION && pos < waypoints.size) {
-                if (selectedMarkerIndex == pos) {
-                    clearSelectedMarker()
-                }
-                waypointMarkers[pos].remove()
-                waypointMarkers.removeAt(pos)
-                waypointCircles[pos].remove()
-                waypointCircles.removeAt(pos)
-                waypoints.removeAt(pos)
-                waypointDisplayList.removeAt(pos)
-                waypointAdapter.notifyDataSetChanged()
-                updatePathLine()
-                updateGuideLine()
-                if (isNavigating && pos == currentTargetIndex) {
-                    stopNavigation()
-                } else if (isNavigating && pos < currentTargetIndex) {
-                    currentTargetIndex--
-                }
-                if (selectedMarkerIndex >= waypoints.size) {
-                    selectedMarkerIndex = -1
-                }
-                lvWaypoints.clearChoices()
+                deleteWaypoint(pos)
                 Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "请先选中一个点", Toast.LENGTH_SHORT).show()
@@ -299,18 +283,7 @@ class AutoDriveActivity : AppCompatActivity(),
         }
 
         btnClearPoints.setOnClickListener {
-            clearSelectedMarker()
-            waypointMarkers.forEach { it.remove() }
-            waypointMarkers.clear()
-            waypointCircles.forEach { it.remove() }
-            waypointCircles.clear()
-            waypoints.clear()
-            waypointDisplayList.clear()
-            waypointAdapter.notifyDataSetChanged()
-            updatePathLine()
-            updateGuideLine()
-            if (isNavigating) stopNavigation()
-            lvWaypoints.clearChoices()
+            clearAllWaypoints()
             Toast.makeText(this, "已清空所有点", Toast.LENGTH_SHORT).show()
         }
 
@@ -342,7 +315,6 @@ class AutoDriveActivity : AppCompatActivity(),
             moveToMyLocation()
         }
 
-        // 新增：跳转远程控制
         btnRemoteControl.setOnClickListener {
             startActivity(android.content.Intent(this, RemoteRelayActivity::class.java))
         }
@@ -357,7 +329,7 @@ class AutoDriveActivity : AppCompatActivity(),
         val host = prefs.getString("remote_host", "") ?: ""
         val port = prefs.getString("remote_port", "9999")?.toIntOrNull() ?: 9999
 
-        // 从 RemoteControlHelper 获取已有的 relayClient（如果已连接）
+        // 从 RemoteControlHelper 获取已有的 relayClient
         if (RemoteControlHelper.relayClient != null && RemoteControlHelper.targetId.isNotEmpty()) {
             relayClient = RemoteControlHelper.relayClient
             remoteTargetId = RemoteControlHelper.targetId
@@ -367,7 +339,7 @@ class AutoDriveActivity : AppCompatActivity(),
                 Toast.makeText(this, "远程已连接", Toast.LENGTH_SHORT).show()
             }
         } else if (host.isNotEmpty() && remoteUsername.isNotEmpty()) {
-            // 如果配置了远程信息，创建客户端但先不自动连接（让用户通过远程界面连接）
+            // 创建客户端但先不自动连接
             relayClient = RelayClient(
                 serverHost = host,
                 serverPort = port,
@@ -380,7 +352,6 @@ class AutoDriveActivity : AppCompatActivity(),
                     runOnUiThread {
                         if (status.contains("注册成功")) {
                             remoteEnabled = true
-                            // 保存到帮助类
                             RemoteControlHelper.relayClient = relayClient
                             RemoteControlHelper.targetId = remoteTargetId
                             startStatusSending()
@@ -392,7 +363,7 @@ class AutoDriveActivity : AppCompatActivity(),
                     }
                 }
             )
-            // 可选择自动连接（如果需要，取消注释）
+            // 可选择自动连接
             // CoroutineScope(Dispatchers.IO).launch {
             //     val id = if (remoteUsername.isNotEmpty()) remoteUsername else Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             //     relayClient?.connect(id)
@@ -425,6 +396,11 @@ class AutoDriveActivity : AppCompatActivity(),
         marker.setIcon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE))
         selectedMarkerIndex = position
         lvWaypoints.setItemChecked(position, true)
+
+        // 远程选择目标点指令
+        if (remoteEnabled) {
+            sendRemoteCommand("select_waypoint", mapOf("index" to position))
+        }
     }
 
     private fun clearSelectedMarker() {
@@ -466,6 +442,51 @@ class AutoDriveActivity : AppCompatActivity(),
 
         updatePathLine()
         updateGuideLine()
+    }
+
+    // ---------- 删除点 ----------
+    private fun deleteWaypoint(position: Int) {
+        if (position < 0 || position >= waypoints.size) return
+
+        if (selectedMarkerIndex == position) {
+            clearSelectedMarker()
+        }
+        waypointMarkers[position].remove()
+        waypointMarkers.removeAt(position)
+        waypointCircles[position].remove()
+        waypointCircles.removeAt(position)
+        waypoints.removeAt(position)
+        waypointDisplayList.removeAt(position)
+        waypointAdapter.notifyDataSetChanged()
+        updatePathLine()
+        updateGuideLine()
+
+        if (isNavigating && position == currentTargetIndex) {
+            stopNavigation()
+        } else if (isNavigating && position < currentTargetIndex) {
+            currentTargetIndex--
+        }
+
+        if (selectedMarkerIndex >= waypoints.size) {
+            selectedMarkerIndex = -1
+        }
+        lvWaypoints.clearChoices()
+    }
+
+    // ---------- 清空所有点 ----------
+    private fun clearAllWaypoints() {
+        clearSelectedMarker()
+        waypointMarkers.forEach { it.remove() }
+        waypointMarkers.clear()
+        waypointCircles.forEach { it.remove() }
+        waypointCircles.clear()
+        waypoints.clear()
+        waypointDisplayList.clear()
+        waypointAdapter.notifyDataSetChanged()
+        updatePathLine()
+        updateGuideLine()
+        if (isNavigating) stopNavigation()
+        lvWaypoints.clearChoices()
     }
 
     // ---------- 线条更新 ----------
@@ -869,8 +890,22 @@ class AutoDriveActivity : AppCompatActivity(),
                 put("lat", loc.latitude)
                 put("lng", loc.longitude)
                 put("bearing", if (deviceBearing != 0f) deviceBearing else loc.bearing)
-                put("speed", navMaxSpeed)
-                put("nav_status", if (isNavigating) "navigating" else "idle")
+                put("nav_status", if (isNavigating) "navigating" else if (isCalibrating) "calibrating" else "idle")
+                put("is_navigating", isNavigating)
+                put("is_calibrating", isCalibrating)
+
+                // 目标点列表
+                val pointsArray = JSONArray()
+                waypoints.forEach { pt ->
+                    val ptObj = JSONObject().apply {
+                        put("lat", pt.latitude)
+                        put("lng", pt.longitude)
+                    }
+                    pointsArray.put(ptObj)
+                }
+                put("waypoints", pointsArray)
+                put("current_target", currentTargetIndex)
+                put("total_waypoints", waypoints.size)
             }
             val payload = json.toString()
             CoroutineScope(Dispatchers.IO).launch {
@@ -878,6 +913,24 @@ class AutoDriveActivity : AppCompatActivity(),
             }
         } catch (e: Exception) {
             // 忽略发送错误
+        }
+    }
+
+    // ---------- 发送远程指令 ----------
+    private fun sendRemoteCommand(type: String, params: Map<String, Any> = emptyMap()) {
+        if (!remoteEnabled || relayClient?.isConnected() != true) return
+        if (remoteTargetId.isEmpty()) return
+
+        try {
+            val json = JSONObject().apply {
+                put("type", type)
+                params.forEach { put(it.key, it.value) }
+            }
+            CoroutineScope(Dispatchers.IO).launch {
+                relayClient?.sendMessage(remoteTargetId, json.toString())
+            }
+        } catch (e: Exception) {
+            // 忽略
         }
     }
 
@@ -891,15 +944,23 @@ class AutoDriveActivity : AppCompatActivity(),
                     val speed = json.optDouble("speed", 0.0).toFloat()
                     val turn = json.optDouble("turn", 0.0).toFloat()
                     runOnUiThread {
+                        isRemoteControlled = true
                         bleController.sendControl(speed, turn, stop = false)
                         tvSpeed.text = String.format("速度: %.2f m/s", speed)
                         tvTurn.text = String.format("转向: %.1f °/s", turn)
                         tvInfo.text = "远程控制中..."
+                        // 5秒后自动清除远程控制状态
+                        handler.postDelayed({
+                            isRemoteControlled = false
+                            if (!isNavigating) {
+                                bleController.sendControl(0f, 0f, stop = true)
+                            }
+                        }, 5000)
                     }
                 }
                 "start_auto" -> {
                     runOnUiThread {
-                        if (!isNavigating && !isCalibrating) {
+                        if (!isNavigating && !isCalibrating && waypoints.isNotEmpty()) {
                             startNavigation()
                             Toast.makeText(this, "远程启动导航", Toast.LENGTH_SHORT).show()
                         }
@@ -910,6 +971,42 @@ class AutoDriveActivity : AppCompatActivity(),
                         if (isNavigating || isCalibrating) {
                             stopNavigation()
                             Toast.makeText(this, "远程停止导航", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                "add_waypoint" -> {
+                    val lat = json.optDouble("lat", Double.NaN)
+                    val lng = json.optDouble("lng", Double.NaN)
+                    if (!lat.isNaN() && !lng.isNaN()) {
+                        runOnUiThread {
+                            val point = LatLonPoint(lat, lng)
+                            addWaypoint(point)
+                            Toast.makeText(this, "远程添加目标点", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                "delete_waypoint" -> {
+                    val index = json.optInt("index", -1)
+                    if (index in waypoints.indices) {
+                        runOnUiThread {
+                            deleteWaypoint(index)
+                            Toast.makeText(this, "远程删除目标点", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                "clear_waypoints" -> {
+                    runOnUiThread {
+                        clearAllWaypoints()
+                        Toast.makeText(this, "远程清空所有目标点", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                "select_waypoint" -> {
+                    val index = json.optInt("index", -1)
+                    if (index in waypoints.indices) {
+                        runOnUiThread {
+                            selectWaypoint(index)
+                            lvWaypoints.setItemChecked(index, true)
+                            Toast.makeText(this, "远程选择目标点 ${index + 1}", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -981,7 +1078,6 @@ class AutoDriveActivity : AppCompatActivity(),
         locationClient.onDestroy()
         bleController.disconnect()
         stopStatusSending()
-        // 不要断开 relayClient，因为可能被 RemoteRelayActivity 共享
         handler.removeCallbacksAndMessages(null)
         sensorManager.unregisterListener(this)
     }
