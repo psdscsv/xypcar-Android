@@ -77,12 +77,6 @@
             android:parentActivityName=".AutoDriveActivity"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/AppTheme" />
-        <activity
-            android:name=".RemoteRelayActivity"
-            android:label="远程控制"
-            android:parentActivityName=".AutoDriveActivity"
-            android:screenOrientation="sensorLandscape"
-            android:theme="@style/AppTheme" />
     </application>
 
 </manifest>

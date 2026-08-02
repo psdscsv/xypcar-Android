@@ -1,6 +1,7 @@
 package com.psd.xypcar
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -60,7 +61,7 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var tvSpeed: TextView
     private lateinit var tvTurn: TextView
     private lateinit var btnLocate: Button
-    private lateinit var btnRemoteControl: Button
+    private lateinit var btnRemoteControl: Button  // 现在用于远程连接切换
 
     // Tab 按钮
     private lateinit var tabControl: Button
@@ -116,6 +117,7 @@ class AutoDriveActivity : AppCompatActivity(),
     private var relayClient: RelayClient? = null
     private var remoteTargetId: String = ""
     private var remoteEnabled = false
+    private var remoteConnecting = false
     private var statusSendRunnable: Runnable? = null
     private val statusInterval = 1000L
     private var remoteUsername: String = ""
@@ -126,9 +128,8 @@ class AutoDriveActivity : AppCompatActivity(),
     private var guideLine: Polyline? = null
     private val headingLineLength = 30.0
 
-    // ---------- 远程位置标记 ----------
-    private var remoteLocationMarker: Marker? = null
-    private var isRemoteControlled = false  // 标记是否被远程操控
+    // ---------- 权限请求标志 ----------
+    private var isRequestingPermission = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -250,7 +251,9 @@ class AutoDriveActivity : AppCompatActivity(),
         if (checkLocationPermission()) {
             locationClient.startLocation()
         } else {
-            requestLocationPermissions()
+            if (!isRequestingPermission) {
+                requestLocationPermissions()
+            }
         }
 
         // ---------- 初始化远程控制 ----------
@@ -315,31 +318,61 @@ class AutoDriveActivity : AppCompatActivity(),
             moveToMyLocation()
         }
 
+        // 远程连接按钮（切换）
         btnRemoteControl.setOnClickListener {
-            startActivity(android.content.Intent(this, RemoteRelayActivity::class.java))
+            toggleRemoteConnection()
         }
 
-        connectBle()
+        // 延迟连接BLE，避免在权限请求过程中调用
+        handler.postDelayed({
+            connectBle()
+        }, 500)
+
         switchTab(true)
+        // 初始按钮文字
+        btnRemoteControl.text = "📡 连接远程"
     }
 
-    // ---------- 初始化远程控制 ----------
-    private fun initRemoteControl() {
+    // ---------- 远程连接切换 ----------
+    private fun toggleRemoteConnection() {
+        if (remoteConnecting) {
+            Toast.makeText(this, "正在连接中...", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (remoteEnabled) {
+            // 断开
+            disconnectRemote()
+        } else {
+            // 连接
+            connectRemote()
+        }
+    }
+
+    private fun connectRemote() {
         val prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
         val host = prefs.getString("remote_host", "") ?: ""
         val port = prefs.getString("remote_port", "9999")?.toIntOrNull() ?: 9999
+        if (host.isEmpty()) {
+            Toast.makeText(this, "请先在设置中配置服务器地址", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (remoteUsername.isEmpty()) {
+            Toast.makeText(this, "请先在设置中配置用户名", Toast.LENGTH_LONG).show()
+            return
+        }
 
-        // 从 RemoteControlHelper 获取已有的 relayClient
-        if (RemoteControlHelper.relayClient != null && RemoteControlHelper.targetId.isNotEmpty()) {
-            relayClient = RemoteControlHelper.relayClient
-            remoteTargetId = RemoteControlHelper.targetId
-            if (relayClient?.isConnected() == true) {
-                remoteEnabled = true
-                startStatusSending()
-                Toast.makeText(this, "远程已连接", Toast.LENGTH_SHORT).show()
-            }
-        } else if (host.isNotEmpty() && remoteUsername.isNotEmpty()) {
-            // 创建客户端但先不自动连接
+        // 如果没有目标ID，弹出对话框输入
+        if (remoteTargetId.isEmpty()) {
+            showTargetIdDialog()
+            return
+        }
+
+        remoteConnecting = true
+        btnRemoteControl.text = "连接中..."
+        btnRemoteControl.isEnabled = false
+
+        // 如果 relayClient 不存在，则创建
+        if (relayClient == null) {
             relayClient = RelayClient(
                 serverHost = host,
                 serverPort = port,
@@ -352,22 +385,98 @@ class AutoDriveActivity : AppCompatActivity(),
                     runOnUiThread {
                         if (status.contains("注册成功")) {
                             remoteEnabled = true
+                            remoteConnecting = false
+                            btnRemoteControl.text = "📡 断开远程"
+                            btnRemoteControl.isEnabled = true
                             RemoteControlHelper.relayClient = relayClient
                             RemoteControlHelper.targetId = remoteTargetId
                             startStatusSending()
                             Toast.makeText(this@AutoDriveActivity, "远程连接成功", Toast.LENGTH_SHORT).show()
                         } else if (status.contains("断开") || status.contains("错误")) {
                             remoteEnabled = false
+                            remoteConnecting = false
+                            btnRemoteControl.text = "📡 连接远程"
+                            btnRemoteControl.isEnabled = true
                             stopStatusSending()
+                            Toast.makeText(this@AutoDriveActivity, "远程断开", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
             )
-            // 可选择自动连接
-            // CoroutineScope(Dispatchers.IO).launch {
-            //     val id = if (remoteUsername.isNotEmpty()) remoteUsername else Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-            //     relayClient?.connect(id)
-            // }
+        }
+
+        val deviceId = if (remoteUsername.isNotEmpty()) remoteUsername else Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        CoroutineScope(Dispatchers.IO).launch {
+            val success = relayClient?.connect(deviceId) ?: false
+            withContext(Dispatchers.Main) {
+                if (!success) {
+                    remoteConnecting = false
+                    btnRemoteControl.text = "📡 连接远程"
+                    btnRemoteControl.isEnabled = true
+                    Toast.makeText(this@AutoDriveActivity, "连接失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        // 超时处理
+        handler.postDelayed({
+            if (remoteConnecting && !remoteEnabled) {
+                remoteConnecting = false
+                btnRemoteControl.text = "📡 连接远程"
+                btnRemoteControl.isEnabled = true
+                Toast.makeText(this, "连接超时", Toast.LENGTH_SHORT).show()
+            }
+        }, 15000)
+    }
+
+    private fun disconnectRemote() {
+        relayClient?.disconnect()
+        remoteEnabled = false
+        remoteConnecting = false
+        btnRemoteControl.text = "📡 连接远程"
+        btnRemoteControl.isEnabled = true
+        stopStatusSending()
+        Toast.makeText(this, "已断开远程", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showTargetIdDialog() {
+        val input = EditText(this)
+        input.hint = "输入目标设备ID"
+        AlertDialog.Builder(this)
+            .setTitle("输入远程目标ID")
+            .setView(input)
+            .setPositiveButton("确定") { _, _ ->
+                val id = input.text.toString().trim()
+                if (id.isNotEmpty()) {
+                    remoteTargetId = id
+                    // 保存到 SharedPreferences 以便下次使用
+                    getSharedPreferences("car_config", Context.MODE_PRIVATE).edit()
+                        .putString("remote_target_id", id).apply()
+                    connectRemote() // 重新尝试连接
+                } else {
+                    Toast.makeText(this, "ID不能为空", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    // ---------- 初始化远程（不自动连接） ----------
+    private fun initRemoteControl() {
+        val prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
+        remoteUsername = prefs.getString("remote_username", "") ?: ""
+        // 读取之前保存的目标ID
+        remoteTargetId = prefs.getString("remote_target_id", "") ?: ""
+
+        // 如果已有 RemoteControlHelper 中的客户端，则复用
+        if (RemoteControlHelper.relayClient != null && RemoteControlHelper.targetId.isNotEmpty()) {
+            relayClient = RemoteControlHelper.relayClient
+            remoteTargetId = RemoteControlHelper.targetId
+            if (relayClient?.isConnected() == true) {
+                remoteEnabled = true
+                btnRemoteControl.text = "📡 断开远程"
+                startStatusSending()
+            }
         }
     }
 
@@ -397,7 +506,6 @@ class AutoDriveActivity : AppCompatActivity(),
         selectedMarkerIndex = position
         lvWaypoints.setItemChecked(position, true)
 
-        // 远程选择目标点指令
         if (remoteEnabled) {
             sendRemoteCommand("select_waypoint", mapOf("index" to position))
         }
@@ -613,7 +721,14 @@ class AutoDriveActivity : AppCompatActivity(),
             return
         }
         if (!checkBlePermissions()) {
-            requestBlePermissions()
+            if (!isRequestingPermission) {
+                requestBlePermissions()
+            }
+            return
+        }
+        if (!bleController.isBluetoothEnabled()) {
+            tvBleStatus.text = "BLE: 请开启蓝牙"
+            Toast.makeText(this, "请先开启蓝牙", Toast.LENGTH_SHORT).show()
             return
         }
         tvBleStatus.text = "BLE: 扫描中..."
@@ -632,6 +747,8 @@ class AutoDriveActivity : AppCompatActivity(),
     }
 
     private fun requestLocationPermissions() {
+        if (isRequestingPermission) return
+        isRequestingPermission = true
         ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1002)
     }
 
@@ -646,26 +763,43 @@ class AutoDriveActivity : AppCompatActivity(),
     }
 
     private fun requestBlePermissions() {
+        if (isRequestingPermission) return
+        isRequestingPermission = true
         val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.ACCESS_FINE_LOCATION)
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
         } else {
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
         }
         ActivityCompat.requestPermissions(this, perms, 1003)
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         when (requestCode) {
-            1002 -> if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                locationClient.startLocation()
-            } else {
-                Toast.makeText(this, "需要位置权限", Toast.LENGTH_SHORT).show()
+            1002 -> {
+                isRequestingPermission = false
+                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                    locationClient.startLocation()
+                } else {
+                    Toast.makeText(this, "需要位置权限", Toast.LENGTH_SHORT).show()
+                }
             }
-            1003 -> if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                connectBle()
-            } else {
-                Toast.makeText(this, "需要蓝牙权限", Toast.LENGTH_SHORT).show()
+            1003 -> {
+                isRequestingPermission = false
+                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                    connectBle()
+                } else {
+                    Toast.makeText(this, "需要蓝牙权限", Toast.LENGTH_SHORT).show()
+                    tvBleStatus.text = "BLE: 权限被拒绝"
+                }
             }
         }
     }
@@ -894,7 +1028,6 @@ class AutoDriveActivity : AppCompatActivity(),
                 put("is_navigating", isNavigating)
                 put("is_calibrating", isCalibrating)
 
-                // 目标点列表
                 val pointsArray = JSONArray()
                 waypoints.forEach { pt ->
                     val ptObj = JSONObject().apply {
@@ -944,14 +1077,11 @@ class AutoDriveActivity : AppCompatActivity(),
                     val speed = json.optDouble("speed", 0.0).toFloat()
                     val turn = json.optDouble("turn", 0.0).toFloat()
                     runOnUiThread {
-                        isRemoteControlled = true
                         bleController.sendControl(speed, turn, stop = false)
                         tvSpeed.text = String.format("速度: %.2f m/s", speed)
                         tvTurn.text = String.format("转向: %.1f °/s", turn)
                         tvInfo.text = "远程控制中..."
-                        // 5秒后自动清除远程控制状态
                         handler.postDelayed({
-                            isRemoteControlled = false
                             if (!isNavigating) {
                                 bleController.sendControl(0f, 0f, stop = true)
                             }
@@ -1064,6 +1194,18 @@ class AutoDriveActivity : AppCompatActivity(),
             calibrationAngle = newAngle
             updateAllCirclesRadius()
         }
+        // 更新远程按钮状态（如果之前已连接）
+        if (remoteEnabled) {
+            btnRemoteControl.text = "📡 断开远程"
+        } else {
+            btnRemoteControl.text = "📡 连接远程"
+        }
+        // 如果远程已连接但标志不对，修正
+        if (relayClient?.isConnected() == true && !remoteEnabled) {
+            remoteEnabled = true
+            btnRemoteControl.text = "📡 断开远程"
+            startStatusSending()
+        }
     }
 
     override fun onPause() {
@@ -1077,13 +1219,13 @@ class AutoDriveActivity : AppCompatActivity(),
         locationClient.stopLocation()
         locationClient.onDestroy()
         bleController.disconnect()
+        // 断开远程但不销毁 relayClient，因为可能被其他 Activity 复用
         stopStatusSending()
         handler.removeCallbacksAndMessages(null)
         sensorManager.unregisterListener(this)
     }
 }
 
-// ---------- 远程控制帮助类 ----------
 object RemoteControlHelper {
     var relayClient: RelayClient? = null
     var targetId: String = ""

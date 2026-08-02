@@ -17,6 +17,7 @@ import com.amap.api.maps.MapView
 import com.amap.api.maps.MapsInitializer
 import com.amap.api.maps.model.*
 import com.amap.api.services.core.LatLonPoint
+import com.psd.xypcar.control.JoystickView
 import com.psd.xypcar.remote.RelayClient
 import kotlinx.coroutines.*
 import org.json.JSONArray
@@ -56,11 +57,32 @@ class RemoteRelayActivity : AppCompatActivity() {
     private val remoteCircles = mutableListOf<Circle>()
     private var remoteCurrentTarget = 0
     private var remoteLocationMarker: Marker? = null
-    private var remoteBearing = 0f
 
     private lateinit var waypointAdapter: ArrayAdapter<String>
     private val waypointDisplayList = mutableListOf<String>()
     private var selectedWaypointIndex = -1
+
+    // 驾驶模式相关
+    private lateinit var joystickLeft: JoystickView
+    private lateinit var joystickRight: JoystickView
+    private lateinit var btnToggleDriveMode: ImageButton
+    private lateinit var btnExitDriveMode: ImageButton
+    private lateinit var tvDriveInfo: TextView
+    private lateinit var joystickOverlay: RelativeLayout
+    private lateinit var mainLayout: LinearLayout
+    private lateinit var rightPanel: ScrollView
+    private var isDriveMode = false
+    private var driveSpeed = 0f
+    private var driveTurn = 0f
+    private val driveSendInterval = 50L
+    private var lastDriveSendTime = 0L
+
+    // 从设置读取的最大速度和转向
+    private var maxSpeed = 2.2f
+    private var maxTurn = 50f
+
+    // 连接状态标志
+    private var isConnecting = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,6 +97,7 @@ class RemoteRelayActivity : AppCompatActivity() {
         MapsInitializer.updatePrivacyAgree(this, true)
 
         prefs = getSharedPreferences("car_config", MODE_PRIVATE)
+        loadConfig()
 
         // 初始化UI
         tvMyId = findViewById(R.id.tv_my_id)
@@ -99,7 +122,16 @@ class RemoteRelayActivity : AppCompatActivity() {
         btnDeleteRemotePoint = findViewById(R.id.btn_delete_remote_point)
         btnClearRemotePoints = findViewById(R.id.btn_clear_remote_points)
 
-        // 修复：使用正确的 getView 签名（使用 ViewGroup? 或 ViewGroup）
+        // 驾驶模式控件
+        joystickOverlay = findViewById(R.id.joystick_overlay)
+        mainLayout = findViewById(R.id.main_layout)
+        rightPanel = findViewById(R.id.right_panel)
+        btnToggleDriveMode = findViewById(R.id.btn_toggle_drive_mode)
+        btnExitDriveMode = findViewById(R.id.btn_exit_drive_mode)
+        joystickLeft = findViewById(R.id.joystick_left)
+        joystickRight = findViewById(R.id.joystick_right)
+        tvDriveInfo = findViewById(R.id.tv_drive_info)
+
         waypointAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, waypointDisplayList) {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val view = super.getView(position, convertView, parent)
@@ -112,7 +144,6 @@ class RemoteRelayActivity : AppCompatActivity() {
 
         lvWaypoints.setOnItemClickListener { _, _, position, _ ->
             selectedWaypointIndex = position
-            // 发送选择目标点指令
             if (isConnected) {
                 sendRemoteCommand("select_waypoint", mapOf("index" to position))
             }
@@ -147,18 +178,31 @@ class RemoteRelayActivity : AppCompatActivity() {
                     when {
                         status.contains("注册成功") -> {
                             isConnected = true
+                            isConnecting = false
                             btnConnect.text = "已连接"
                             btnConnect.isEnabled = true
                             btnDisconnect.isEnabled = true
                             Toast.makeText(this@RemoteRelayActivity, "连接成功", Toast.LENGTH_SHORT).show()
+                            // 连接成功后自动进入驾驶模式（可选）
+                            // toggleDriveMode(true)
                         }
                         status.contains("断开") || status.contains("错误") -> {
                             isConnected = false
+                            isConnecting = false
                             btnConnect.text = "连接"
                             btnConnect.isEnabled = true
                             btnDisconnect.isEnabled = false
-                            // 清空远程数据
                             clearRemoteData()
+                            // 如果处于驾驶模式，退出
+                            if (isDriveMode) {
+                                toggleDriveMode(false)
+                            }
+                        }
+                        status.contains("连接失败") -> {
+                            isConnecting = false
+                            btnConnect.text = "连接"
+                            btnConnect.isEnabled = true
+                            btnDisconnect.isEnabled = false
                         }
                     }
                 }
@@ -189,43 +233,76 @@ class RemoteRelayActivity : AppCompatActivity() {
                 Toast.makeText(this, "已连接", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+            if (isConnecting) {
+                Toast.makeText(this, "正在连接中...", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             if (host.isEmpty()) {
                 Toast.makeText(this, "请先在设置中配置服务器地址", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
+
+            isConnecting = true
             btnConnect.isEnabled = false
             btnConnect.text = "连接中..."
+
             CoroutineScope(Dispatchers.IO).launch {
-                val success = relayClient.connect(deviceId)
-                withContext(Dispatchers.Main) {
-                    if (!success) {
+                try {
+                    val success = relayClient.connect(deviceId)
+                    withContext(Dispatchers.Main) {
+                        if (!success) {
+                            isConnecting = false
+                            btnConnect.text = "连接"
+                            btnConnect.isEnabled = true
+                            Toast.makeText(this@RemoteRelayActivity, "连接失败，请检查网络和服务器", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isConnecting = false
                         btnConnect.text = "连接"
                         btnConnect.isEnabled = true
-                        Toast.makeText(this@RemoteRelayActivity, "连接失败", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@RemoteRelayActivity, "连接异常: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }
+
+            // 超时处理
+            handler.postDelayed({
+                if (isConnecting && !isConnected) {
+                    isConnecting = false
+                    btnConnect.text = "连接"
+                    btnConnect.isEnabled = true
+                    Toast.makeText(this, "连接超时", Toast.LENGTH_SHORT).show()
+                }
+            }, 15000)
         }
 
         btnDisconnect.setOnClickListener {
             if (isConnected) {
                 relayClient.disconnect()
                 isConnected = false
+                isConnecting = false
                 btnConnect.text = "连接"
                 btnConnect.isEnabled = true
                 btnDisconnect.isEnabled = false
                 tvStatus.text = "状态: 已断开"
                 appendLog("【系统】 已断开")
                 clearRemoteData()
+                if (isDriveMode) {
+                    toggleDriveMode(false)
+                }
                 Toast.makeText(this, "已断开", Toast.LENGTH_SHORT).show()
             }
         }
 
         // 目标点操作按钮
         btnAddRemotePos.setOnClickListener {
-            // 添加远程设备当前位置为目标点
+            if (!isConnected) {
+                Toast.makeText(this, "请先连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             val locationText = tvRemoteStatus.text.toString()
-            // 从状态中提取经纬度
             val latLng = extractLatLngFromStatus(locationText)
             if (latLng != null) {
                 sendRemoteCommand("add_waypoint", mapOf(
@@ -239,6 +316,10 @@ class RemoteRelayActivity : AppCompatActivity() {
         }
 
         btnDeleteRemotePoint.setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "请先连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             val pos = lvWaypoints.checkedItemPosition
             if (pos != ListView.INVALID_POSITION && pos < remoteWaypoints.size) {
                 sendRemoteCommand("delete_waypoint", mapOf("index" to pos))
@@ -249,18 +330,176 @@ class RemoteRelayActivity : AppCompatActivity() {
         }
 
         btnClearRemotePoints.setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "请先连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             sendRemoteCommand("clear_waypoints", emptyMap())
             Toast.makeText(this, "已请求清空所有目标点", Toast.LENGTH_SHORT).show()
         }
 
-        // 遥控按钮
-        findViewById<Button>(R.id.btn_forward).setOnClickListener { sendRemoteCmd("remote", mapOf("speed" to 1.5, "turn" to 0f)) }
-        findViewById<Button>(R.id.btn_backward).setOnClickListener { sendRemoteCmd("remote", mapOf("speed" to -1.5, "turn" to 0f)) }
-        findViewById<Button>(R.id.btn_left).setOnClickListener { sendRemoteCmd("remote", mapOf("speed" to 0f, "turn" to -0.8f)) }
-        findViewById<Button>(R.id.btn_right).setOnClickListener { sendRemoteCmd("remote", mapOf("speed" to 0f, "turn" to 0.8f)) }
-        findViewById<Button>(R.id.btn_stop).setOnClickListener { sendRemoteCmd("remote", mapOf("speed" to 0f, "turn" to 0f)) }
-        findViewById<Button>(R.id.btn_start_auto).setOnClickListener { sendRemoteCmd("start_auto", emptyMap()) }
-        findViewById<Button>(R.id.btn_stop_auto).setOnClickListener { sendRemoteCmd("stop_auto", emptyMap()) }
+        // 遥控按钮（使用 maxSpeed 和 maxTurn）
+        findViewById<Button>(R.id.btn_forward).setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "未连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            sendRemoteCmd("remote", mapOf("speed" to maxSpeed * 0.7f, "turn" to 0f))
+        }
+        findViewById<Button>(R.id.btn_backward).setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "未连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            sendRemoteCmd("remote", mapOf("speed" to -maxSpeed * 0.7f, "turn" to 0f))
+        }
+        findViewById<Button>(R.id.btn_left).setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "未连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            sendRemoteCmd("remote", mapOf("speed" to 0f, "turn" to -maxTurn * 0.6f))
+        }
+        findViewById<Button>(R.id.btn_right).setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "未连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            sendRemoteCmd("remote", mapOf("speed" to 0f, "turn" to maxTurn * 0.6f))
+        }
+        findViewById<Button>(R.id.btn_stop).setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "未连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            sendRemoteCmd("remote", mapOf("speed" to 0f, "turn" to 0f))
+        }
+        findViewById<Button>(R.id.btn_start_auto).setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "未连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            sendRemoteCmd("start_auto", emptyMap())
+        }
+        findViewById<Button>(R.id.btn_stop_auto).setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "未连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            sendRemoteCmd("stop_auto", emptyMap())
+        }
+
+        // 驾驶模式切换
+        btnToggleDriveMode.setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "请先连接服务器", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            toggleDriveMode(true)
+        }
+        btnExitDriveMode.setOnClickListener {
+            toggleDriveMode(false)
+            // 退出驾驶模式时发送停止指令
+            if (isConnected) {
+                sendRemoteCommand("remote", mapOf("speed" to 0f, "turn" to 0f))
+            }
+        }
+
+        // 设置摇杆监听
+        joystickLeft.setOnJoystickMoveListener(object : JoystickView.OnJoystickMoveListener {
+            override fun onMove(speed: Float, turn: Float) {
+                driveSpeed = -speed
+                sendDriveControl()
+            }
+        })
+
+        joystickRight.setOnJoystickMoveListener(object : JoystickView.OnJoystickMoveListener {
+            override fun onMove(speed: Float, turn: Float) {
+                driveTurn = turn
+                sendDriveControl()
+            }
+        })
+
+        // 初始不进入驾驶模式
+        toggleDriveMode(false)
+
+        // 如果有目标设备ID，自动填充（从设置或上次使用）
+        val savedTarget = prefs.getString("remote_target_id", "")
+        if (savedTarget?.isNotEmpty() == true) {
+            etTargetId.setText(savedTarget)
+        }
+    }
+
+    // 加载配置
+    private fun loadConfig() {
+        maxSpeed = prefs.getFloat("max_speed", 2.2f)
+        maxTurn = prefs.getFloat("max_turn", 50f)
+    }
+
+    // 驾驶模式切换
+    private fun toggleDriveMode(enter: Boolean) {
+        if (enter && !isConnected) {
+            Toast.makeText(this, "请先连接服务器", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        isDriveMode = enter
+        if (enter) {
+            // 隐藏右侧面板，地图扩展至全屏
+            rightPanel.visibility = View.GONE
+            val mapLayoutParams = mapView.layoutParams as LinearLayout.LayoutParams
+            mapLayoutParams.weight = 0f
+            mapLayoutParams.width = LinearLayout.LayoutParams.MATCH_PARENT
+            mapView.layoutParams = mapLayoutParams
+
+            // 显示摇杆覆盖层
+            joystickOverlay.visibility = View.VISIBLE
+
+            // 重置摇杆
+            joystickLeft.resetJoystick()
+            joystickRight.resetJoystick()
+            driveSpeed = 0f
+            driveTurn = 0f
+            tvDriveInfo.text = "速度: 0.0  转向: 0.0"
+        } else {
+            // 恢复右侧面板
+            rightPanel.visibility = View.VISIBLE
+            val mapLayoutParams = mapView.layoutParams as LinearLayout.LayoutParams
+            mapLayoutParams.weight = 1f
+            mapLayoutParams.width = 0
+            mapView.layoutParams = mapLayoutParams
+
+            // 隐藏摇杆覆盖层
+            joystickOverlay.visibility = View.GONE
+
+            // 重置摇杆
+            joystickLeft.resetJoystick()
+            joystickRight.resetJoystick()
+            driveSpeed = 0f
+            driveTurn = 0f
+
+            // 发送停止指令
+            if (isConnected) {
+                sendRemoteCommand("remote", mapOf("speed" to 0f, "turn" to 0f))
+            }
+        }
+    }
+
+    // 驾驶模式下发送控制指令（使用 maxSpeed 和 maxTurn）
+    private fun sendDriveControl() {
+        if (!isDriveMode || !isConnected) return
+        val now = System.currentTimeMillis()
+        if (now - lastDriveSendTime < driveSendInterval) return
+        lastDriveSendTime = now
+
+        // 映射到实际物理值
+        val speed = (driveSpeed * maxSpeed).coerceIn(-maxSpeed, maxSpeed)
+        val turn = (driveTurn * maxTurn).coerceIn(-maxTurn, maxTurn)
+        sendRemoteCommand("remote", mapOf("speed" to speed, "turn" to turn))
+
+        runOnUiThread {
+            tvDriveInfo.text = String.format(Locale.US, "速度: %.1f  转向: %.0f", speed, turn)
+        }
     }
 
     // 处理接收到的消息
@@ -268,18 +507,11 @@ class RemoteRelayActivity : AppCompatActivity() {
         try {
             val json = JSONObject(payload)
             val type = json.optString("type")
-
             when (type) {
-                "status" -> {
-                    updateRemoteStatus(json)
-                }
-                else -> {
-                    // 其他消息显示在日志
-                    appendLog("【数据】 $payload")
-                }
+                "status" -> updateRemoteStatus(json)
+                else -> appendLog("【数据】 $payload")
             }
         } catch (e: Exception) {
-            // 非JSON或格式不符
             appendLog("【原始】 $payload")
         }
     }
@@ -288,15 +520,11 @@ class RemoteRelayActivity : AppCompatActivity() {
         val lat = json.optDouble("lat", Double.NaN)
         val lng = json.optDouble("lng", Double.NaN)
         val bearing = json.optDouble("bearing", 0.0).toFloat()
-        val navStatus = json.optString("nav_status", "idle")
         val isNavigating = json.optBoolean("is_navigating", false)
         val isCalibrating = json.optBoolean("is_calibrating", false)
 
-        // 更新位置标记
         if (!lat.isNaN() && !lng.isNaN()) {
             updateRemoteLocation(lat, lng, bearing)
-
-            // 更新状态文本
             val statusText = when {
                 isNavigating -> "导航中"
                 isCalibrating -> "校准中"
@@ -308,108 +536,108 @@ class RemoteRelayActivity : AppCompatActivity() {
             )
         }
 
-        // 更新目标点
         val waypointsArray = json.optJSONArray("waypoints")
         val currentIdx = json.optInt("current_target", 0)
-        val totalCount = json.optInt("total_waypoints", 0)
-
         if (waypointsArray != null) {
             updateRemoteWaypoints(waypointsArray, currentIdx)
         }
     }
 
     private fun updateRemoteLocation(lat: Double, lng: Double, bearing: Float) {
-        val latLng = LatLng(lat, lng)
-
-        if (remoteLocationMarker == null) {
-            remoteLocationMarker = aMap.addMarker(
-                MarkerOptions()
-                    .position(latLng)
-                    .title("远程设备")
-                    .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_car_blue))
-                    .anchor(0.5f, 0.5f)
-            )
-        } else {
-            remoteLocationMarker?.position = latLng
+        try {
+            val latLng = LatLng(lat, lng)
+            if (remoteLocationMarker == null) {
+                remoteLocationMarker = aMap.addMarker(
+                    MarkerOptions()
+                        .position(latLng)
+                        .title("远程设备")
+                        .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_car_blue))
+                        .anchor(0.5f, 0.5f)
+                )
+            } else {
+                remoteLocationMarker?.position = latLng
+            }
+            remoteLocationMarker?.setRotateAngle(bearing)
+            aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 16f))
+        } catch (e: Exception) {
+            appendLog("【错误】 更新位置失败: ${e.message}")
         }
-        remoteLocationMarker?.setRotateAngle(bearing)
-
-        // 移动相机到远程位置
-        aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 16f))
     }
 
     private fun updateRemoteWaypoints(waypointsArray: JSONArray, currentTarget: Int) {
-        // 清空旧标记
-        remoteMarkers.forEach { it.remove() }
-        remoteMarkers.clear()
-        remoteCircles.forEach { it.remove() }
-        remoteCircles.clear()
-        remoteWaypoints.clear()
-        waypointDisplayList.clear()
+        try {
+            remoteMarkers.forEach { it.remove() }
+            remoteMarkers.clear()
+            remoteCircles.forEach { it.remove() }
+            remoteCircles.clear()
+            remoteWaypoints.clear()
+            waypointDisplayList.clear()
 
-        remoteCurrentTarget = currentTarget
+            remoteCurrentTarget = currentTarget
+            val arrivalDist = prefs.getFloat("arrival_distance", 10f)
 
-        val arrivalDist = prefs.getFloat("arrival_distance", 10f)
+            for (i in 0 until waypointsArray.length()) {
+                val pt = waypointsArray.getJSONObject(i)
+                val lat = pt.optDouble("lat")
+                val lng = pt.optDouble("lng")
+                if (!lat.isNaN() && !lng.isNaN()) {
+                    val point = LatLonPoint(lat, lng)
+                    remoteWaypoints.add(point)
 
-        for (i in 0 until waypointsArray.length()) {
-            val pt = waypointsArray.getJSONObject(i)
-            val lat = pt.optDouble("lat")
-            val lng = pt.optDouble("lng")
-            if (!lat.isNaN() && !lng.isNaN()) {
-                val point = LatLonPoint(lat, lng)
-                remoteWaypoints.add(point)
+                    val isCurrent = (i == currentTarget)
+                    val hue = if (isCurrent) BitmapDescriptorFactory.HUE_BLUE else BitmapDescriptorFactory.HUE_RED
 
-                // 判断是否当前目标
-                val isCurrent = (i == currentTarget)
-                val hue = if (isCurrent) BitmapDescriptorFactory.HUE_BLUE else BitmapDescriptorFactory.HUE_RED
+                    val marker = aMap.addMarker(
+                        MarkerOptions()
+                            .position(LatLng(lat, lng))
+                            .title("目标点 ${i + 1}")
+                            .icon(BitmapDescriptorFactory.defaultMarker(hue))
+                    )
+                    remoteMarkers.add(marker)
 
-                val marker = aMap.addMarker(
-                    MarkerOptions()
-                        .position(LatLng(lat, lng))
-                        .title("目标点 ${i + 1}")
-                        .icon(BitmapDescriptorFactory.defaultMarker(hue))
-                )
-                remoteMarkers.add(marker)
+                    val circle = aMap.addCircle(
+                        CircleOptions()
+                            .center(LatLng(lat, lng))
+                            .radius(arrivalDist.toDouble())
+                            .strokeColor(if (isCurrent) Color.YELLOW else Color.argb(180, 255, 0, 0))
+                            .strokeWidth(if (isCurrent) 6f else 2f)
+                            .fillColor(Color.argb(30, 255, 0, 0))
+                    )
+                    remoteCircles.add(circle)
 
-                val circle = aMap.addCircle(
-                    CircleOptions()
-                        .center(LatLng(lat, lng))
-                        .radius(arrivalDist.toDouble())
-                        .strokeColor(if (isCurrent) Color.YELLOW else Color.argb(180, 255, 0, 0))
-                        .strokeWidth(if (isCurrent) 6f else 2f)
-                        .fillColor(Color.argb(30, 255, 0, 0))
-                )
-                remoteCircles.add(circle)
-
-                val display = String.format(Locale.US, "%d: %.6f, %.6f", i + 1, lat, lng)
-                waypointDisplayList.add(display)
+                    val display = String.format(Locale.US, "%d: %.6f, %.6f", i + 1, lat, lng)
+                    waypointDisplayList.add(display)
+                }
             }
-        }
 
-        waypointAdapter.notifyDataSetChanged()
-
-        // 选中当前目标
-        if (currentTarget >= 0 && currentTarget < remoteWaypoints.size) {
-            lvWaypoints.setItemChecked(currentTarget, true)
-            selectedWaypointIndex = currentTarget
+            waypointAdapter.notifyDataSetChanged()
+            if (currentTarget >= 0 && currentTarget < remoteWaypoints.size) {
+                lvWaypoints.setItemChecked(currentTarget, true)
+                selectedWaypointIndex = currentTarget
+            }
+        } catch (e: Exception) {
+            appendLog("【错误】 更新目标点失败: ${e.message}")
         }
     }
 
     private fun clearRemoteData() {
-        remoteMarkers.forEach { it.remove() }
-        remoteMarkers.clear()
-        remoteCircles.forEach { it.remove() }
-        remoteCircles.clear()
-        remoteWaypoints.clear()
-        waypointDisplayList.clear()
-        waypointAdapter.notifyDataSetChanged()
-        remoteLocationMarker?.remove()
-        remoteLocationMarker = null
-        tvRemoteStatus.text = "等待数据..."
+        try {
+            remoteMarkers.forEach { it.remove() }
+            remoteMarkers.clear()
+            remoteCircles.forEach { it.remove() }
+            remoteCircles.clear()
+            remoteWaypoints.clear()
+            waypointDisplayList.clear()
+            waypointAdapter.notifyDataSetChanged()
+            remoteLocationMarker?.remove()
+            remoteLocationMarker = null
+            tvRemoteStatus.text = "等待数据..."
+        } catch (e: Exception) {
+            appendLog("【错误】 清除数据失败: ${e.message}")
+        }
     }
 
     private fun extractLatLngFromStatus(status: String): Pair<Double, Double>? {
-        // 从 "📍 位置: 39.9042, 116.4074 ..." 中提取经纬度
         val pattern = Regex("位置: (\\d+\\.\\d+), (\\d+\\.\\d+)")
         val match = pattern.find(status)
         return if (match != null) {
@@ -429,6 +657,8 @@ class RemoteRelayActivity : AppCompatActivity() {
             Toast.makeText(this, "请输入目标设备ID", Toast.LENGTH_SHORT).show()
             return
         }
+        // 保存目标ID
+        prefs.edit().putString("remote_target_id", target).apply()
         sendRemoteCommand(cmd, params)
     }
 
@@ -442,12 +672,18 @@ class RemoteRelayActivity : AppCompatActivity() {
         }.toString()
 
         CoroutineScope(Dispatchers.IO).launch {
-            val success = relayClient.sendMessage(target, payload)
-            withContext(Dispatchers.Main) {
-                if (success) {
-                    appendLog("【发送】 到 $target: $type")
-                } else {
-                    Toast.makeText(this@RemoteRelayActivity, "发送失败", Toast.LENGTH_SHORT).show()
+            try {
+                val success = relayClient.sendMessage(target, payload)
+                withContext(Dispatchers.Main) {
+                    if (success) {
+                        appendLog("【发送】 到 $target: $type")
+                    } else {
+                        Toast.makeText(this@RemoteRelayActivity, "发送失败，连接可能已断开", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@RemoteRelayActivity, "发送异常: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -455,12 +691,10 @@ class RemoteRelayActivity : AppCompatActivity() {
 
     private fun appendLog(text: String) {
         tvLog.append("$text\n")
-        // 限制日志行数
         val lines = tvLog.text.split("\n")
         if (lines.size > 200) {
             tvLog.text = lines.takeLast(150).joinToString("\n") + "\n"
         }
-        // 自动滚动到底部
         (tvLog.parent as? View)?.post {
             (tvLog.parent as? View)?.scrollTo(0, (tvLog.parent as? View)?.height ?: 0)
         }
@@ -468,18 +702,41 @@ class RemoteRelayActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        mapView.onResume()
+        try {
+            mapView.onResume()
+            loadConfig() // 重新读取配置
+        } catch (e: Exception) {
+            // 忽略地图恢复异常
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        mapView.onPause()
+        try {
+            mapView.onPause()
+        } catch (e: Exception) {
+            // 忽略地图暂停异常
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        mapView.onDestroy()
-        relayClient.disconnect()
+        try {
+            mapView.onDestroy()
+        } catch (e: Exception) {
+            // 忽略地图销毁异常
+        }
+        try {
+            relayClient.disconnect()
+        } catch (e: Exception) {
+            // 忽略断开连接异常
+        }
         handler.removeCallbacksAndMessages(null)
+        try {
+            joystickLeft.resetJoystick()
+            joystickRight.resetJoystick()
+        } catch (e: Exception) {
+            // 忽略摇杆重置异常
+        }
     }
 }

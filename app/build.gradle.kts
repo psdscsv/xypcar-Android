@@ -38,11 +38,20 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-
+    // 签名配置
+    signingConfigs {
+        create("release") {
+            storeFile = file("C:\\Users\\tanru\\projects\\android\\mykey\\test3")   // 例如: "D:/keys/my-release-key.jks"
+            storePassword = "123456"
+            keyAlias = "key0"
+            keyPassword = "123456"
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
-
+            // 关联签名配置
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

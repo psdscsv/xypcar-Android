@@ -198,4 +198,7 @@ class BLEController(private val context: Context) {
         bluetoothGatt?.writeCharacteristic(char)
 
     }
+    fun isBluetoothEnabled(): Boolean {
+        return bluetoothAdapter?.isEnabled == true
+    }
 }

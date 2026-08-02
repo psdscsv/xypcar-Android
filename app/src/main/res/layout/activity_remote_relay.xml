@@ -12,30 +12,44 @@
         android:layout_height="match_parent"
         android:layout_weight="1" />
 
-    <!-- 右侧面板 - 使用 ScrollView 包裹 -->
+    <!-- 右侧面板 - 带滚动 -->
     <ScrollView
-        android:layout_width="380dp"
+        android:layout_width="360dp"
         android:layout_height="match_parent"
-        android:background="#CC000000"
         android:scrollbars="vertical"
-        android:scrollbarStyle="outsideInset"
-        android:fadeScrollbars="false">
+        android:background="#CC000000"
+        android:padding="8dp"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="8dp"
-            android:paddingBottom="16dp">
+            android:orientation="vertical">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <!-- 顶部标题和切换按钮 -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="📡 远程控制"
-                android:textColor="#FFFFFF"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="4dp" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="📡 远程控制"
+                    android:textColor="#FFFFFF"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <ImageButton
+                    android:id="@+id/btn_toggle_drive_mode"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@android:drawable/ic_menu_manage"
+                    android:background="?attr/selectableItemBackground"
+                    android:contentDescription="驾驶模式" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/tv_my_id"
@@ -43,7 +57,7 @@
                 android:layout_height="wrap_content"
                 android:text="本机ID: --"
                 android:textColor="#AAAAAA"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
 
             <TextView
                 android:id="@+id/tv_status"
@@ -51,7 +65,7 @@
                 android:layout_height="wrap_content"
                 android:text="状态: 未连接"
                 android:textColor="#FFAA44"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 android:layout_marginTop="2dp" />
 
             <LinearLayout
@@ -65,10 +79,9 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="连接"
-                    android:textSize="12sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#4CAF50"
-                    android:textColor="#FFFFFF" />
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp" />
                 <Button
                     android:id="@+id/btn_disconnect"
                     android:layout_width="0dp"
@@ -76,10 +89,9 @@
                     android:layout_weight="1"
                     android:text="断开"
                     android:enabled="false"
-                    android:textSize="12sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#F44336"
                     android:textColor="#FFFFFF"
+                    android:textSize="12sp"
                     android:layout_marginStart="4dp" />
             </LinearLayout>
 
@@ -88,9 +100,8 @@
                 android:layout_height="wrap_content"
                 android:text="目标设备ID"
                 android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:layout_marginTop="6dp" />
-
+                android:textSize="14sp"
+                android:layout_marginTop="8dp" />
             <EditText
                 android:id="@+id/et_target_id"
                 android:layout_width="match_parent"
@@ -108,38 +119,39 @@
                 android:layout_height="wrap_content"
                 android:text="等待数据..."
                 android:textColor="#00FFAA"
-                android:textSize="11sp"
+                android:textSize="12sp"
                 android:padding="4dp"
                 android:background="#33000000"
                 android:layout_marginTop="4dp" />
 
-            <!-- 分割线 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
                 android:background="#444444"
-                android:layout_marginTop="6dp" />
+                android:layout_marginTop="8dp" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🎯 目标点列表"
                 android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:layout_marginTop="6dp" />
+                android:textSize="14sp"
+                android:layout_marginTop="8dp" />
 
+            <!-- 关键修改：添加 scrollbars 和 nestedScrollingEnabled -->
             <ListView
                 android:id="@+id/lv_remote_waypoints"
                 android:layout_width="match_parent"
-                android:layout_height="120dp"
+                android:layout_height="150dp"
                 android:background="#33000000"
                 android:padding="2dp"
                 android:divider="#444444"
                 android:dividerHeight="1dp"
                 android:choiceMode="singleChoice"
+                android:scrollbars="vertical"
+                android:nestedScrollingEnabled="true"
                 android:layout_marginTop="4dp" />
 
-            <!-- 目标点操作按钮 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -153,9 +165,9 @@
                     android:layout_height="wrap_content"
                     android:text="标记远程位置"
                     android:textSize="10sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#4A6A9A"
-                    android:textColor="#FFFFFF" />
+                    android:textColor="#FFFFFF"
+                    android:paddingVertical="6dp" />
 
                 <Button
                     android:id="@+id/btn_delete_remote_point"
@@ -164,9 +176,9 @@
                     android:layout_height="wrap_content"
                     android:text="删除选中"
                     android:textSize="10sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#F44336"
                     android:textColor="#FFFFFF"
+                    android:paddingVertical="6dp"
                     android:layout_marginStart="4dp" />
 
                 <Button
@@ -176,33 +188,31 @@
                     android:layout_height="wrap_content"
                     android:text="清空"
                     android:textSize="10sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#FF5722"
                     android:textColor="#FFFFFF"
+                    android:paddingVertical="6dp"
                     android:layout_marginStart="4dp" />
             </LinearLayout>
 
-            <!-- 分割线 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
                 android:background="#444444"
-                android:layout_marginTop="6dp" />
+                android:layout_marginTop="8dp" />
 
-            <!-- 遥控指令 -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🕹️ 遥控指令"
                 android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:layout_marginTop="6dp" />
+                android:textSize="14sp"
+                android:layout_marginTop="4dp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="4dp">
+                android:layout_marginTop="2dp">
                 <Button
                     android:id="@+id/btn_forward"
                     android:layout_width="0dp"
@@ -210,9 +220,9 @@
                     android:layout_height="wrap_content"
                     android:text="前进"
                     android:textSize="11sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#2196F3"
-                    android:textColor="#FFFFFF" />
+                    android:textColor="#FFFFFF"
+                    android:paddingVertical="6dp" />
                 <Button
                     android:id="@+id/btn_backward"
                     android:layout_width="0dp"
@@ -220,9 +230,9 @@
                     android:layout_height="wrap_content"
                     android:text="后退"
                     android:textSize="11sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#2196F3"
                     android:textColor="#FFFFFF"
+                    android:paddingVertical="6dp"
                     android:layout_marginStart="2dp" />
                 <Button
                     android:id="@+id/btn_left"
@@ -231,9 +241,9 @@
                     android:layout_height="wrap_content"
                     android:text="左转"
                     android:textSize="11sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#2196F3"
                     android:textColor="#FFFFFF"
+                    android:paddingVertical="6dp"
                     android:layout_marginStart="2dp" />
                 <Button
                     android:id="@+id/btn_right"
@@ -242,9 +252,9 @@
                     android:layout_height="wrap_content"
                     android:text="右转"
                     android:textSize="11sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#2196F3"
                     android:textColor="#FFFFFF"
+                    android:paddingVertical="6dp"
                     android:layout_marginStart="2dp" />
                 <Button
                     android:id="@+id/btn_stop"
@@ -253,18 +263,17 @@
                     android:layout_height="wrap_content"
                     android:text="停止"
                     android:textSize="11sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#F44336"
                     android:textColor="#FFFFFF"
+                    android:paddingVertical="6dp"
                     android:layout_marginStart="2dp" />
             </LinearLayout>
 
-            <!-- 导航控制 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="4dp">
+                android:layout_marginTop="2dp">
                 <Button
                     android:id="@+id/btn_start_auto"
                     android:layout_width="0dp"
@@ -272,9 +281,9 @@
                     android:layout_height="wrap_content"
                     android:text="启动导航"
                     android:textSize="11sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#FF9800"
-                    android:textColor="#FFFFFF" />
+                    android:textColor="#FFFFFF"
+                    android:paddingVertical="6dp" />
                 <Button
                     android:id="@+id/btn_stop_auto"
                     android:layout_width="0dp"
@@ -282,35 +291,31 @@
                     android:layout_height="wrap_content"
                     android:text="停止导航"
                     android:textSize="11sp"
-                    android:paddingVertical="6dp"
                     android:backgroundTint="#9C27B0"
                     android:textColor="#FFFFFF"
-                    android:layout_marginStart="4dp" />
+                    android:paddingVertical="6dp"
+                    android:layout_marginStart="2dp" />
             </LinearLayout>
 
-            <!-- 分割线 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
                 android:background="#444444"
-                android:layout_marginTop="6dp" />
+                android:layout_marginTop="4dp" />
 
-            <!-- 日志 -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📋 日志"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp"
-                android:layout_marginTop="6dp" />
+                android:layout_marginTop="4dp" />
 
             <ScrollView
                 android:layout_width="match_parent"
-                android:layout_height="120dp"
+                android:layout_height="100dp"
                 android:background="#33000000"
-                android:padding="4dp"
-                android:scrollbars="vertical"
-                android:scrollbarStyle="outsideInset">
+                android:padding="4dp">
                 <TextView
                     android:id="@+id/tv_log"
                     android:layout_width="match_parent"
@@ -324,4 +329,52 @@
         </LinearLayout>
     </ScrollView>
 
+    <!-- 摇杆覆盖层（驾驶模式） -->
+    <RelativeLayout
+        android:id="@+id/joystick_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:background="#88000000">
+
+        <com.psd.xypcar.control.JoystickView
+            android:id="@+id/joystick_left"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            android:layout_centerVertical="true"
+            android:layout_alignParentStart="true"
+            android:layout_marginStart="40dp" />
+
+        <com.psd.xypcar.control.JoystickView
+            android:id="@+id/joystick_right"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            android:layout_centerVertical="true"
+            android:layout_alignParentEnd="true"
+            android:layout_marginEnd="40dp" />
+
+        <ImageButton
+            android:id="@+id/btn_exit_drive_mode"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentEnd="true"
+            android:layout_margin="16dp"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:background="?attr/selectableItemBackground"
+            android:contentDescription="退出驾驶模式" />
+
+        <TextView
+            android:id="@+id/tv_drive_info"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_alignParentBottom="true"
+            android:layout_marginBottom="40dp"
+            android:text="速度: 0.0  转向: 0.0"
+            android:textColor="#00FFAA"
+            android:textSize="18sp"
+            android:background="#CC000000"
+            android:padding="8dp" />
+    </RelativeLayout>
 </LinearLayout>
