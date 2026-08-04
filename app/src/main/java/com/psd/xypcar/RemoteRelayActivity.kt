@@ -109,6 +109,7 @@ class RemoteRelayActivity : AppCompatActivity() {
         mapView = findViewById(R.id.remote_map)
         mapView.onCreate(savedInstanceState)
         aMap = mapView.map
+        aMap.setMapType(AMap.MAP_TYPE_SATELLITE)
         aMap.uiSettings.isZoomControlsEnabled = true
         aMap.uiSettings.isCompassEnabled = true
         aMap.isMyLocationEnabled = false

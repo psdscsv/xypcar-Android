@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -61,7 +62,7 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var tvSpeed: TextView
     private lateinit var tvTurn: TextView
     private lateinit var btnLocate: Button
-    private lateinit var btnRemoteControl: Button  // 现在用于远程连接切换
+    private lateinit var btnRemoteControl: Button
 
     // Tab 按钮
     private lateinit var tabControl: Button
@@ -131,6 +132,9 @@ class AutoDriveActivity : AppCompatActivity(),
     // ---------- 权限请求标志 ----------
     private var isRequestingPermission = false
 
+    // ---------- 新增：跟随模式 ----------
+    private var isFollowing = false   // 是否处于持续跟随模式
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(
@@ -145,11 +149,14 @@ class AutoDriveActivity : AppCompatActivity(),
         mapView = findViewById(R.id.autodrive_map)
         mapView.onCreate(savedInstanceState)
         aMap = mapView.map
+        aMap.setMapType(AMap.MAP_TYPE_SATELLITE)
         aMap.uiSettings.isZoomControlsEnabled = true
         aMap.uiSettings.isCompassEnabled = true
         aMap.isMyLocationEnabled = true
+
+        // ===== 修改：定位样式改为 LOCATION_TYPE_LOCATE，不自动跟随 =====
         val myLocationStyle = MyLocationStyle()
-        myLocationStyle.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATION_ROTATE)
+        myLocationStyle.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATE)
         aMap.myLocationStyle = myLocationStyle
 
         // 初始化 UI
@@ -314,8 +321,31 @@ class AutoDriveActivity : AppCompatActivity(),
             }
         }
 
+        // ===== 修改：定位按钮点击进入跟随模式 =====
         btnLocate.setOnClickListener {
-            moveToMyLocation()
+            val loc = currentLocation
+            if (loc == null) {
+                Toast.makeText(this, "正在获取位置...", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // 进入跟随模式
+            isFollowing = true
+            val style = MyLocationStyle()
+            style.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATION_ROTATE)
+            aMap.myLocationStyle = style
+
+
+            // 设置触摸监听：用户触摸地图即退出跟随
+            aMap.setOnMapTouchListener { event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    if (isFollowing) {
+                        cancelFollowing()
+                    }
+                }
+            }
+
+            Toast.makeText(this, "进入跟随模式，拖动地图退出", Toast.LENGTH_SHORT).show()
         }
 
         // 远程连接按钮（切换）
@@ -329,8 +359,19 @@ class AutoDriveActivity : AppCompatActivity(),
         }, 500)
 
         switchTab(true)
-        // 初始按钮文字
         btnRemoteControl.text = "📡 连接远程"
+    }
+
+    // ===== 新增：取消跟随模式 =====
+    private fun cancelFollowing() {
+        if (!isFollowing) return
+        isFollowing = false
+        aMap.setOnMapTouchListener(null)
+        // 切换回“仅定位”模式，不再自动居中
+        val style = MyLocationStyle()
+        style.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATE)
+        aMap.myLocationStyle = style
+        Toast.makeText(this, "已退出跟随模式", Toast.LENGTH_SHORT).show()
     }
 
     // ---------- 远程连接切换 ----------
@@ -340,10 +381,8 @@ class AutoDriveActivity : AppCompatActivity(),
             return
         }
         if (remoteEnabled) {
-            // 断开
             disconnectRemote()
         } else {
-            // 连接
             connectRemote()
         }
     }
@@ -361,7 +400,6 @@ class AutoDriveActivity : AppCompatActivity(),
             return
         }
 
-        // 如果没有目标ID，弹出对话框输入
         if (remoteTargetId.isEmpty()) {
             showTargetIdDialog()
             return
@@ -371,7 +409,6 @@ class AutoDriveActivity : AppCompatActivity(),
         btnRemoteControl.text = "连接中..."
         btnRemoteControl.isEnabled = false
 
-        // 如果 relayClient 不存在，则创建
         if (relayClient == null) {
             relayClient = RelayClient(
                 serverHost = host,
@@ -418,7 +455,6 @@ class AutoDriveActivity : AppCompatActivity(),
             }
         }
 
-        // 超时处理
         handler.postDelayed({
             if (remoteConnecting && !remoteEnabled) {
                 remoteConnecting = false
@@ -449,10 +485,9 @@ class AutoDriveActivity : AppCompatActivity(),
                 val id = input.text.toString().trim()
                 if (id.isNotEmpty()) {
                     remoteTargetId = id
-                    // 保存到 SharedPreferences 以便下次使用
                     getSharedPreferences("car_config", Context.MODE_PRIVATE).edit()
                         .putString("remote_target_id", id).apply()
-                    connectRemote() // 重新尝试连接
+                    connectRemote()
                 } else {
                     Toast.makeText(this, "ID不能为空", Toast.LENGTH_SHORT).show()
                 }
@@ -461,14 +496,11 @@ class AutoDriveActivity : AppCompatActivity(),
             .show()
     }
 
-    // ---------- 初始化远程（不自动连接） ----------
     private fun initRemoteControl() {
         val prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
         remoteUsername = prefs.getString("remote_username", "") ?: ""
-        // 读取之前保存的目标ID
         remoteTargetId = prefs.getString("remote_target_id", "") ?: ""
 
-        // 如果已有 RemoteControlHelper 中的客户端，则复用
         if (RemoteControlHelper.relayClient != null && RemoteControlHelper.targetId.isNotEmpty()) {
             relayClient = RemoteControlHelper.relayClient
             remoteTargetId = RemoteControlHelper.targetId
@@ -662,10 +694,6 @@ class AutoDriveActivity : AppCompatActivity(),
     override fun onLocationChanged(location: AMapLocation?) {
         if (location != null && location.errorCode == 0) {
             currentLocation = location
-            if (isFirstLocation) {
-                isFirstLocation = false
-                moveToMyLocation()
-            }
             updateAllLines()
         }
     }
@@ -802,15 +830,6 @@ class AutoDriveActivity : AppCompatActivity(),
                 }
             }
         }
-    }
-
-    private fun moveToMyLocation() {
-        val loc = currentLocation ?: run {
-            Toast.makeText(this, "正在获取位置...", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val latLng = LatLng(loc.latitude, loc.longitude)
-        aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
     }
 
     // ---------- 校准逻辑 ----------
@@ -1194,13 +1213,11 @@ class AutoDriveActivity : AppCompatActivity(),
             calibrationAngle = newAngle
             updateAllCirclesRadius()
         }
-        // 更新远程按钮状态（如果之前已连接）
         if (remoteEnabled) {
             btnRemoteControl.text = "📡 断开远程"
         } else {
             btnRemoteControl.text = "📡 连接远程"
         }
-        // 如果远程已连接但标志不对，修正
         if (relayClient?.isConnected() == true && !remoteEnabled) {
             remoteEnabled = true
             btnRemoteControl.text = "📡 断开远程"
@@ -1219,10 +1236,11 @@ class AutoDriveActivity : AppCompatActivity(),
         locationClient.stopLocation()
         locationClient.onDestroy()
         bleController.disconnect()
-        // 断开远程但不销毁 relayClient，因为可能被其他 Activity 复用
         stopStatusSending()
         handler.removeCallbacksAndMessages(null)
         sensorManager.unregisterListener(this)
+        // 清理地图触摸监听，防止内存泄漏
+        aMap.setOnMapTouchListener(null)
     }
 }
 
