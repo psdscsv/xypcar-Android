@@ -14,6 +14,7 @@
 
     <!-- 右侧面板 - 带滚动 -->
     <ScrollView
+        android:id="@+id/right_panel"
         android:layout_width="360dp"
         android:layout_height="match_parent"
         android:scrollbars="vertical"

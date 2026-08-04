@@ -1,152 +1,165 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg_main"
-    android:orientation="vertical"
-    android:padding="12dp">
+    android:background="@color/bg_main">
 
+    <!-- 图传背景图像 -->
+    <ImageView
+        android:id="@+id/iv_video_background"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:visibility="gone" />
 
+    <!-- 原有控件容器 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <EditText
-            android:id="@+id/device_name_input"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:background="@android:drawable/editbox_background"
-            android:hint="输入蓝牙名称"
-            android:padding="8dp"
-            android:singleLine="true"
-            android:text="ESP32_Car"
-            android:textColor="#000000"
-            android:textColorHint="#888888"
-            android:textSize="16sp" />
-
-        <Button
-            android:id="@+id/connect_btn"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/btn_connect_ripple"
-            android:paddingHorizontal="16dp"
-            android:text="连接"
-            android:textColor="#FFFFFF" />
-
-        <Button
-            android:id="@+id/disconnect_btn"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/btn_disconnect_ripple"
-            android:enabled="false"
-            android:paddingHorizontal="16dp"
-            android:text="断开"
-            android:textColor="#FFFFFF" />
-
-        <ImageButton
-            android:id="@+id/btn_settings"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@raw/ic_settings"
-            android:scaleType="centerCrop"
-            android:background="?attr/selectableItemBackground"
-            android:contentDescription="设置" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/status_text"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:text="❌ 未连接"
-        android:textColor="@color/text_status_disconnected"
-        android:textSize="16sp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center"
-        android:orientation="horizontal">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="12dp">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
+            android:layout_marginBottom="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <EditText
+                android:id="@+id/device_name_input"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="速度"
-                android:textColor="@color/text_primary"
-                android:textSize="18sp" />
-
-            <com.psd.xypcar.control.JoystickView
-                android:id="@+id/left_joystick"
-                android:layout_width="200dp"
-                android:layout_height="200dp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="200dp"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:paddingHorizontal="20dp">
-
-            <TextView
-                android:id="@+id/value_display"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="monospace"
-                android:gravity="center"
-                android:lineSpacingExtra="6dp"
-                android:padding="12dp"
-                android:text="速度: 0.0 m/s\n转向: 0 °/s"
-                android:textColor="#00FFAA"
+                android:layout_weight="1"
+                android:background="@android:drawable/editbox_background"
+                android:hint="输入蓝牙名称"
+                android:padding="8dp"
+                android:singleLine="true"
+                android:text="ESP32_Car"
+                android:textColor="#000000"
+                android:textColorHint="#888888"
                 android:textSize="16sp" />
 
             <Button
-                android:id="@+id/reset_btn"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/btn_reset_ripple"
-                android:paddingVertical="8dp"
-                android:text="归零"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <TextView
+                android:id="@+id/connect_btn"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="转向"
-                android:textColor="@color/text_primary"
-                android:textSize="18sp" />
+                android:layout_marginStart="8dp"
+                android:background="@drawable/btn_connect_ripple"
+                android:paddingHorizontal="16dp"
+                android:text="连接"
+                android:textColor="#FFFFFF" />
 
-            <com.psd.xypcar.control.JoystickView
-                android:id="@+id/right_joystick"
+            <Button
+                android:id="@+id/disconnect_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/btn_disconnect_ripple"
+                android:enabled="false"
+                android:paddingHorizontal="16dp"
+                android:text="断开"
+                android:textColor="#FFFFFF" />
+
+            <ImageButton
+                android:id="@+id/btn_settings"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@raw/ic_settings"
+                android:scaleType="centerCrop"
+                android:background="?attr/selectableItemBackground"
+                android:contentDescription="设置" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/status_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="❌ 未连接"
+            android:textColor="@color/text_status_disconnected"
+            android:textSize="16sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="速度"
+                    android:textColor="@color/text_primary"
+                    android:textSize="18sp" />
+
+                <com.psd.xypcar.control.JoystickView
+                    android:id="@+id/left_joystick"
+                    android:layout_width="200dp"
+                    android:layout_height="200dp" />
+            </LinearLayout>
+
+            <LinearLayout
                 android:layout_width="200dp"
-                android:layout_height="200dp" />
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingHorizontal="20dp">
+
+                <TextView
+                    android:id="@+id/value_display"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:gravity="center"
+                    android:lineSpacingExtra="6dp"
+                    android:padding="12dp"
+                    android:text="速度: 0.0 m/s\n转向: 0 °/s"
+                    android:textColor="#00FFAA"
+                    android:visibility="invisible"
+                    android:textSize="16sp" />
+
+                <Button
+                    android:id="@+id/reset_btn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="96dp"
+                    android:background="@drawable/btn_reset_ripple"
+                    android:paddingVertical="8dp"
+                    android:text="归零"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="转向"
+                    android:textColor="@color/text_primary"
+                    android:textSize="18sp" />
+
+                <com.psd.xypcar.control.JoystickView
+                    android:id="@+id/right_joystick"
+                    android:layout_width="200dp"
+                    android:layout_height="200dp" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
-
-</LinearLayout>
+</FrameLayout>

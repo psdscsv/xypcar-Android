@@ -1,7 +1,7 @@
-// RemoteControlActivity.kt
 package com.psd.xypcar
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
@@ -10,18 +10,18 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.psd.xypcar.control.BLEController
 import com.psd.xypcar.control.JoystickView
+import com.psd.xypcar.network.UdpDeviceDiscovery
+import com.psd.xypcar.network.NetworkSource
 import java.util.Locale
 import android.content.Intent
 import android.widget.ImageButton
+import android.view.View
 
 class RemoteControlActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
@@ -37,23 +37,27 @@ class RemoteControlActivity : AppCompatActivity() {
     private lateinit var settingBtn: ImageButton
     private lateinit var valueDisplay: TextView
 
+    // 图传相关
+    private lateinit var ivVideoBackground: ImageView
+    private var videoSource: NetworkSource? = null
+    private var isVideoEnabled = false
+    private var isVideoRunning = false
+    private val videoHandler = Handler(Looper.getMainLooper())
+
     private val handler = Handler(Looper.getMainLooper())
-
-    // 存储摇杆当前值（归一化 -1 ~ 1）
-    private var leftSpeed = 0f   // 左摇杆速度（Y轴，向上为正）
-    private var rightTurn = 0f   // 右摇杆转向（X轴，向右为正）
-
-    // 限流发送
+    private var leftSpeed = 0f
+    private var rightTurn = 0f
     private var lastSendTime = 0L
     private val sendIntervalMs = 20L
-    private var isReadyToSend = false  // 连接稳定后才允许发送
+    private var isReadyToSend = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 隐藏状态栏和标题栏（如果主题已处理标题栏，这里只处理状态栏）
         window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN)
         setContentView(R.layout.activity_remote_control)
+
+        ivVideoBackground = findViewById(R.id.iv_video_background)
 
         leftJoystick = findViewById(R.id.left_joystick)
         rightJoystick = findViewById(R.id.right_joystick)
@@ -65,19 +69,17 @@ class RemoteControlActivity : AppCompatActivity() {
         settingBtn = findViewById(R.id.btn_settings)
         bleController = BLEController(this)
 
-        // 检查权限
         if (!checkPermissions()) {
             requestPermissions()
         }
 
-        // BLE 监听器
         bleController.setConnectionListener(object : BLEController.ConnectionListener {
             override fun onConnected() {
                 runOnUiThread {
                     statusText.text = "✅ 已连接"
                     statusText.setTextColor(ContextCompat.getColor(this@RemoteControlActivity, android.R.color.holo_green_light))
-                    connectBtn.isEnabled = false      // 连接成功后禁用连接按钮
-                    disconnectBtn.isEnabled = true    // 启用断开按钮
+                    connectBtn.isEnabled = false
+                    disconnectBtn.isEnabled = true
                     Toast.makeText(this@RemoteControlActivity, "连接成功", Toast.LENGTH_SHORT).show()
                     handler.postDelayed({ isReadyToSend = true }, 200)
                 }
@@ -88,8 +90,8 @@ class RemoteControlActivity : AppCompatActivity() {
                     isReadyToSend = false
                     statusText.text = "❌ 未连接"
                     statusText.setTextColor(ContextCompat.getColor(this@RemoteControlActivity, android.R.color.holo_red_light))
-                    connectBtn.isEnabled = true       // 恢复连接按钮
-                    disconnectBtn.isEnabled = false   // 禁用断开按钮
+                    connectBtn.isEnabled = true
+                    disconnectBtn.isEnabled = false
                     Toast.makeText(this@RemoteControlActivity, "连接断开", Toast.LENGTH_SHORT).show()
                     bleController.sendControl(0f, 0f, stop = true)
                     leftSpeed = 0f
@@ -100,10 +102,7 @@ class RemoteControlActivity : AppCompatActivity() {
         })
 
         bleController.setScanListener(object : BLEController.ScanListener {
-            override fun onDeviceFound(device: android.bluetooth.BluetoothDevice) {
-                // 自动连接，无需操作
-            }
-
+            override fun onDeviceFound(device: android.bluetooth.BluetoothDevice) {}
             override fun onScanFailed(message: String) {
                 runOnUiThread {
                     Toast.makeText(this@RemoteControlActivity, message, Toast.LENGTH_SHORT).show()
@@ -111,21 +110,16 @@ class RemoteControlActivity : AppCompatActivity() {
             }
         })
 
-
         resetBtn.setOnClickListener {
-            // 强制摇杆归零
-            leftJoystick.resetJoystick()   // 需要添加方法
+            leftJoystick.resetJoystick()
             rightJoystick.resetJoystick()
-            // 清空变量
             leftSpeed = 0f
             rightTurn = 0f
-            // 发送停止指令
             bleController.sendControl(0f, 0f, stop = true)
             valueDisplay.text = "速度: 0.0 m/s  转向: 0 °/s"
-            // 可选：显示提示
             Toast.makeText(this, "已归零", Toast.LENGTH_SHORT).show()
         }
-        // 连接按钮
+
         connectBtn.setOnClickListener {
             if (!bleController.isBleSupported()) {
                 Toast.makeText(this, "设备不支持BLE", Toast.LENGTH_SHORT).show()
@@ -136,7 +130,6 @@ class RemoteControlActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            // 获取设备名称（假设您有 EditText 控件）
             val deviceName = findViewById<EditText>(R.id.device_name_input).text.toString().trim()
             if (deviceName.isEmpty()) {
                 Toast.makeText(this, "请输入设备名称", Toast.LENGTH_SHORT).show()
@@ -146,7 +139,7 @@ class RemoteControlActivity : AppCompatActivity() {
 
             statusText.text = "🔍 扫描中..."
             statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_blue_light))
-            connectBtn.isEnabled = false   // 防止重复点击
+            connectBtn.isEnabled = false
             bleController.startScan()
 
             handler.postDelayed({
@@ -161,7 +154,6 @@ class RemoteControlActivity : AppCompatActivity() {
 
         disconnectBtn.setOnClickListener {
             isReadyToSend = false
-            // 显示断开中的状态（可选）
             statusText.text = "⏳ 正在断开..."
             statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_orange_light))
             bleController.disconnect()
@@ -170,67 +162,144 @@ class RemoteControlActivity : AppCompatActivity() {
         settingBtn.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
-        // ========== 左摇杆：控制速度（垂直方向） ==========
+
         leftJoystick.setOnJoystickMoveListener(object : JoystickView.OnJoystickMoveListener {
             override fun onMove(speed: Float, turn: Float) {
-                // 只取 Y 轴（速度），向上为正（前进）
-                leftSpeed = -speed   // 因为摇杆Y轴向上为负，取反
+                leftSpeed = -speed
                 sendCombinedControl()
             }
-
         })
 
-        // ========== 右摇杆：控制转向（水平方向） ==========
         rightJoystick.setOnJoystickMoveListener(object : JoystickView.OnJoystickMoveListener {
             override fun onMove(speed: Float, turn: Float) {
-                // 只取 X 轴（转向），向右为正
                 rightTurn = turn
                 sendCombinedControl()
             }
-
         })
 
-        // 启动时自动连接
-        if (checkPermissions()) {
-            connectBtn.performClick()
-        }
         prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
         loadConfig()
+
+        if (prefs.getBoolean("video_enabled", false)) {
+            startVideoStream()
+        }
     }
+
     private fun loadConfig() {
         maxSpeed = prefs.getFloat("max_speed", 2.2f)
         maxTurn = prefs.getFloat("max_turn", 50f)
-        // 如果有设备名称，可以更新 BLEController 的目标名称
         val name = prefs.getString("device_name", "ESP32_Car") ?: "ESP32_Car"
         bleController.targetDeviceName = name
-        // 更新 UI 上的设备名称输入框（如果有）
         findViewById<EditText>(R.id.device_name_input).setText(name)
     }
+
     override fun onResume() {
         super.onResume()
         loadConfig()
+        val enabled = prefs.getBoolean("video_enabled", false)
+        if (enabled && !isVideoRunning) {
+            startVideoStream()
+        } else if (!enabled && isVideoRunning) {
+            stopVideoStream()
+        }
     }
-    // ========== 合并两个摇杆值发送 ==========
+
+    override fun onPause() {
+        super.onPause()
+        // 可根据需要决定是否暂停图传
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        bleController.disconnect()
+        handler.removeCallbacksAndMessages(null)
+        stopVideoStream()
+    }
+
+    // ---------- 图传功能 ----------
+    private fun startVideoStream() {
+        if (isVideoRunning) return
+        ivVideoBackground.visibility = View.VISIBLE
+        isVideoRunning = true
+
+        Thread {
+            // 使用独立的 UDP 发现工具
+            val ip = UdpDeviceDiscovery.discover()
+            if (ip != null) {
+                runOnUiThread {
+                    connectToNetworkSource(ip, 8080)
+                }
+            } else {
+                runOnUiThread {
+                    Toast.makeText(this, "未发现设备，请手动输入 IP", Toast.LENGTH_LONG).show()
+                    showIpInputDialog()
+                }
+            }
+        }.start()
+    }
+
+    private fun stopVideoStream() {
+        isVideoRunning = false
+        videoSource?.stop()
+        videoSource = null
+        ivVideoBackground.visibility = View.GONE
+        ivVideoBackground.setImageBitmap(null)
+    }
+
+    private fun showIpInputDialog() {
+        val input = EditText(this)
+        input.hint = "输入设备 IP（如 192.168.43.10）"
+        AlertDialog.Builder(this)
+            .setTitle("图传 IP 地址")
+            .setView(input)
+            .setPositiveButton("连接") { _, _ ->
+                val ip = input.text.toString().trim()
+                if (ip.isNotEmpty()) connectToNetworkSource(ip, 8080)
+                else {
+                    Toast.makeText(this, "IP 不能为空", Toast.LENGTH_SHORT).show()
+                    showIpInputDialog()
+                }
+            }
+            .setNegativeButton("取消") { _, _ ->
+                stopVideoStream()
+                ivVideoBackground.visibility = View.GONE
+            }
+            .show()
+    }
+
+    private fun connectToNetworkSource(ip: String, port: Int) {
+        stopVideoStream()
+        isVideoRunning = true
+        ivVideoBackground.visibility = View.VISIBLE
+
+        videoSource = NetworkSource(ip, port)
+        val started = videoSource?.start { bitmap ->
+            runOnUiThread {
+                ivVideoBackground.setImageBitmap(bitmap)
+            }
+        } ?: false
+        if (!started) {
+            Toast.makeText(this, "图传连接失败", Toast.LENGTH_SHORT).show()
+            stopVideoStream()
+        } else {
+            Toast.makeText(this, "图传已连接", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---------- 控制发送 ----------
     private fun sendCombinedControl() {
         if (!isReadyToSend) return
-
-        // 映射速度：-1 ~ 1 -> -2.0 ~ 2.0 m/s
         val targetSpeed = leftSpeed * maxSpeed
-
-        // 映射转向：-1 ~ 1 -> -50 ~ 50 °/s
         val targetTurn = rightTurn * maxTurn
-
-        // 限流发送
         val now = System.currentTimeMillis()
         if (now - lastSendTime >= sendIntervalMs) {
             bleController.sendControl(targetSpeed, targetTurn, stop = false)
             lastSendTime = now
-            // 更新UI显示
             valueDisplay.text = String.format(Locale.US,"速度: %.1f m/s  转向: %.0f °/s", targetSpeed, targetTurn)
         }
     }
 
-    // ========== 权限处理 ==========
+    // ---------- 权限 ----------
     private fun checkPermissions(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
@@ -264,11 +333,5 @@ class RemoteControlActivity : AppCompatActivity() {
                 Toast.makeText(this, "需要权限才能使用蓝牙", Toast.LENGTH_LONG).show()
             }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        bleController.disconnect()
-        handler.removeCallbacksAndMessages(null)
     }
 }

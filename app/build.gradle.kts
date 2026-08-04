@@ -85,4 +85,5 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation(files("libs/AMap3DMap_11.1.200_AMapSearch_9.7.4_AMapLocation_11.1.200_20260424.aar"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }

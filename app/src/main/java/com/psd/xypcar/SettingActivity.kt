@@ -9,6 +9,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -18,25 +19,25 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var pageBluetooth: View
     private lateinit var pageControl: View
     private lateinit var pageNavigation: View
+    private lateinit var pageRemote: View
+    private lateinit var pageVideo: View   // 新增
 
     private lateinit var etDeviceName: EditText
     private lateinit var etMaxSpeed: EditText
     private lateinit var etMaxTurn: EditText
 
-    // 导航参数
     private lateinit var etNavMaxSpeed: EditText
     private lateinit var etNavMaxTurn: EditText
     private lateinit var etArrivalDistance: EditText
-
-    // 校准参数
     private lateinit var etCalibrationTime: EditText
     private lateinit var etCalibrationAngle: EditText
 
-    // 远程协助
     private lateinit var etUsername: EditText
     private lateinit var etServerHost: EditText
     private lateinit var etServerPort: EditText
-    private lateinit var pageRemote: View
+
+    // 图传开关
+    private lateinit var switchVideoEnable: SwitchCompat
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +52,8 @@ class SettingsActivity : AppCompatActivity() {
         pageBluetooth = findViewById(R.id.page_bluetooth)
         pageControl = findViewById(R.id.page_control)
         pageNavigation = findViewById(R.id.page_navigation)
+        pageRemote = findViewById(R.id.page_remote)
+        pageVideo = findViewById(R.id.page_video)
 
         etDeviceName = findViewById(R.id.et_device_name)
         etMaxSpeed = findViewById(R.id.et_max_speed)
@@ -67,6 +70,9 @@ class SettingsActivity : AppCompatActivity() {
         etServerHost = findViewById(R.id.et_server_host)
         etServerPort = findViewById(R.id.et_server_port)
 
+        // 图传控件
+        switchVideoEnable = findViewById(R.id.switch_video_enable)
+
         loadSettings()
 
         findViewById<Button>(R.id.btn_exit).setOnClickListener { finish() }
@@ -74,17 +80,21 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.menu_bluetooth).setOnClickListener { showPage(pageBluetooth) }
         findViewById<Button>(R.id.menu_control).setOnClickListener { showPage(pageControl) }
         findViewById<Button>(R.id.menu_navigation).setOnClickListener { showPage(pageNavigation) }
+        findViewById<Button>(R.id.menu_remote).setOnClickListener { showPage(pageRemote) }
+        findViewById<Button>(R.id.menu_video).setOnClickListener { showPage(pageVideo) }
 
         findViewById<Button>(R.id.btn_back_main).setOnClickListener { showPage(menuMain) }
         findViewById<Button>(R.id.btn_back_main_control).setOnClickListener { showPage(menuMain) }
         findViewById<Button>(R.id.btn_back_main_nav).setOnClickListener { showPage(menuMain) }
+        findViewById<Button>(R.id.btn_back_main_remote).setOnClickListener { showPage(menuMain) }
+        findViewById<Button>(R.id.btn_back_main_video).setOnClickListener { showPage(menuMain) }
 
         findViewById<Button>(R.id.btn_save_bluetooth).setOnClickListener { saveBluetooth() }
         findViewById<Button>(R.id.btn_save_control).setOnClickListener { saveControl() }
         findViewById<Button>(R.id.btn_save_navigation).setOnClickListener { saveNavigation() }
-        findViewById<Button>(R.id.menu_remote).setOnClickListener { showPage(pageRemote) }
-        findViewById<Button>(R.id.btn_back_main_remote).setOnClickListener { showPage(menuMain) }
         findViewById<Button>(R.id.btn_save_remote).setOnClickListener { saveRemote() }
+        findViewById<Button>(R.id.btn_save_video).setOnClickListener { saveVideo() }
+
     }
 
     private fun showPage(view: View) {
@@ -93,6 +103,7 @@ class SettingsActivity : AppCompatActivity() {
         pageControl.visibility = View.GONE
         pageNavigation.visibility = View.GONE
         pageRemote.visibility = View.GONE
+        pageVideo.visibility = View.GONE   // 新增
         view.visibility = View.VISIBLE
     }
 
@@ -110,15 +121,9 @@ class SettingsActivity : AppCompatActivity() {
         etUsername.setText(prefs.getString("remote_username", "USER_001"))
         etServerHost.setText(prefs.getString("remote_host", "32.tcp.cpolar.top"))
         etServerPort.setText(prefs.getString("remote_port", "9999"))
-    }
 
-    private fun saveRemote() {
-        val editor = prefs.edit()
-        editor.putString("remote_username", etUsername.text.toString().trim())
-        editor.putString("remote_host", etServerHost.text.toString().trim())
-        editor.putString("remote_port", etServerPort.text.toString().trim())
-        editor.apply()
-        Toast.makeText(this, "远程设置已保存", Toast.LENGTH_SHORT).show()
+        // 图传开关
+        switchVideoEnable.isChecked = prefs.getBoolean("video_enabled", false)
     }
 
     private fun saveBluetooth() {
@@ -153,5 +158,22 @@ class SettingsActivity : AppCompatActivity() {
         } catch (e: NumberFormatException) {
             Toast.makeText(this, "请输入有效数字", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun saveRemote() {
+        val editor = prefs.edit()
+        editor.putString("remote_username", etUsername.text.toString().trim())
+        editor.putString("remote_host", etServerHost.text.toString().trim())
+        editor.putString("remote_port", etServerPort.text.toString().trim())
+        editor.apply()
+        Toast.makeText(this, "远程设置已保存", Toast.LENGTH_SHORT).show()
+    }
+
+    // 新增：保存图传设置
+    private fun saveVideo() {
+        val editor = prefs.edit()
+        editor.putBoolean("video_enabled", switchVideoEnable.isChecked)
+        editor.apply()
+        Toast.makeText(this, "图传设置已保存", Toast.LENGTH_SHORT).show()
     }
 }
