@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
 import com.amap.api.maps.AMap
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.MapView
@@ -22,7 +23,7 @@ import com.psd.xypcar.remote.RelayClient
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.*
+import java.util.Locale
 
 class RemoteRelayActivity : AppCompatActivity() {
 
@@ -45,7 +46,7 @@ class RemoteRelayActivity : AppCompatActivity() {
     // 地图
     private lateinit var mapView: MapView
     private lateinit var aMap: AMap
-    private lateinit var rightPanel: View   // 右侧面板（ScrollView）
+    private lateinit var rightPanel: View
 
     // 目标点列表
     private lateinit var lvWaypoints: ListView
@@ -77,7 +78,6 @@ class RemoteRelayActivity : AppCompatActivity() {
     private val driveSendInterval = 50L
     private var lastDriveSendTime = 0L
 
-    // 从设置读取的最大速度和转向
     private var maxSpeed = 2.2f
     private var maxTurn = 50f
 
@@ -87,9 +87,9 @@ class RemoteRelayActivity : AppCompatActivity() {
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
         )
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_remote_relay)
 
-        // 初始化高德地图
         MapsInitializer.updatePrivacyShow(this, true, true)
         MapsInitializer.updatePrivacyAgree(this, true)
 
@@ -105,7 +105,6 @@ class RemoteRelayActivity : AppCompatActivity() {
         btnConnect = findViewById(R.id.btn_connect)
         btnDisconnect = findViewById(R.id.btn_disconnect)
 
-        // 地图
         mapView = findViewById(R.id.remote_map)
         mapView.onCreate(savedInstanceState)
         aMap = mapView.map
@@ -114,16 +113,13 @@ class RemoteRelayActivity : AppCompatActivity() {
         aMap.uiSettings.isCompassEnabled = true
         aMap.isMyLocationEnabled = false
 
-        // 右侧面板（ScrollView）
         rightPanel = findViewById(R.id.right_panel)
 
-        // 目标点列表
         lvWaypoints = findViewById(R.id.lv_remote_waypoints)
         btnAddRemotePos = findViewById(R.id.btn_add_remote_pos)
         btnDeleteRemotePoint = findViewById(R.id.btn_delete_remote_point)
         btnClearRemotePoints = findViewById(R.id.btn_clear_remote_points)
 
-        // 驾驶模式控件
         joystickOverlay = findViewById(R.id.joystick_overlay)
         btnToggleDriveMode = findViewById(R.id.btn_toggle_drive_mode)
         btnExitDriveMode = findViewById(R.id.btn_exit_drive_mode)
@@ -131,7 +127,6 @@ class RemoteRelayActivity : AppCompatActivity() {
         joystickRight = findViewById(R.id.joystick_right)
         tvDriveInfo = findViewById(R.id.tv_drive_info)
 
-        // 初始化目标点适配器
         waypointAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, waypointDisplayList) {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val view = super.getView(position, convertView, parent)
@@ -149,7 +144,6 @@ class RemoteRelayActivity : AppCompatActivity() {
             }
         }
 
-        // 获取用户名
         val username = prefs.getString("remote_username", "")
         deviceId = if (username.isNullOrEmpty()) {
             Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
@@ -158,17 +152,16 @@ class RemoteRelayActivity : AppCompatActivity() {
         }
         tvMyId.text = "本机ID: $deviceId"
 
-        // 读取服务器配置
         val host = prefs.getString("remote_host", "") ?: ""
         val port = prefs.getString("remote_port", "9999")?.toIntOrNull() ?: 9999
 
         relayClient = RelayClient(
             serverHost = host,
             serverPort = port,
-            onMessageReceived = { from, payload ->
+            onMessageReceived = { _, payload ->
                 runOnUiThread {
-                    appendLog("【收到】 $from: ${payload.take(100)}")
-                    handleReceivedMessage(from, payload)
+                    appendLog("【收到】 ${payload.take(100)}")
+                    handleReceivedMessage(payload)
                 }
             },
             onStatusChanged = { status ->
@@ -206,7 +199,6 @@ class RemoteRelayActivity : AppCompatActivity() {
             }
         )
 
-        // 地图长按添加目标点
         aMap.setOnMapLongClickListener { latLng ->
             if (!isConnected) {
                 Toast.makeText(this, "请先连接服务器", Toast.LENGTH_SHORT).show()
@@ -224,7 +216,6 @@ class RemoteRelayActivity : AppCompatActivity() {
             Toast.makeText(this, "远程添加目标点", Toast.LENGTH_SHORT).show()
         }
 
-        // 连接按钮
         btnConnect.setOnClickListener {
             if (isConnected) {
                 Toast.makeText(this, "已连接", Toast.LENGTH_SHORT).show()
@@ -264,7 +255,6 @@ class RemoteRelayActivity : AppCompatActivity() {
                 }
             }
 
-            // 超时处理
             handler.postDelayed({
                 if (isConnecting && !isConnected) {
                     isConnecting = false
@@ -293,7 +283,6 @@ class RemoteRelayActivity : AppCompatActivity() {
             }
         }
 
-        // 目标点操作按钮
         btnAddRemotePos.setOnClickListener {
             if (!isConnected) {
                 Toast.makeText(this, "请先连接服务器", Toast.LENGTH_SHORT).show()
@@ -335,7 +324,6 @@ class RemoteRelayActivity : AppCompatActivity() {
             Toast.makeText(this, "已请求清空所有目标点", Toast.LENGTH_SHORT).show()
         }
 
-        // 遥控按钮
         findViewById<Button>(R.id.btn_forward).setOnClickListener {
             if (!isConnected) {
                 Toast.makeText(this, "未连接服务器", Toast.LENGTH_SHORT).show()
@@ -386,7 +374,6 @@ class RemoteRelayActivity : AppCompatActivity() {
             sendRemoteCmd("stop_auto", emptyMap())
         }
 
-        // 驾驶模式切换
         btnToggleDriveMode.setOnClickListener {
             if (!isConnected) {
                 Toast.makeText(this, "请先连接服务器", Toast.LENGTH_SHORT).show()
@@ -401,7 +388,6 @@ class RemoteRelayActivity : AppCompatActivity() {
             }
         }
 
-        // 设置摇杆监听
         joystickLeft.setOnJoystickMoveListener(object : JoystickView.OnJoystickMoveListener {
             override fun onMove(speed: Float, turn: Float) {
                 driveSpeed = -speed
@@ -416,23 +402,19 @@ class RemoteRelayActivity : AppCompatActivity() {
             }
         })
 
-        // 初始不进入驾驶模式
         toggleDriveMode(false)
 
-        // 如果有目标设备ID，自动填充
         val savedTarget = prefs.getString("remote_target_id", "")
         if (savedTarget?.isNotEmpty() == true) {
             etTargetId.setText(savedTarget)
         }
     }
 
-    // 加载配置
     private fun loadConfig() {
         maxSpeed = prefs.getFloat("max_speed", 2.2f)
         maxTurn = prefs.getFloat("max_turn", 50f)
     }
 
-    // 驾驶模式切换
     private fun toggleDriveMode(enter: Boolean) {
         if (enter && !isConnected) {
             Toast.makeText(this, "请先连接服务器", Toast.LENGTH_SHORT).show()
@@ -441,49 +423,39 @@ class RemoteRelayActivity : AppCompatActivity() {
 
         isDriveMode = enter
         if (enter) {
-            // 隐藏右侧面板
             rightPanel.visibility = View.GONE
-            // 地图扩展至全屏
             val mapLayoutParams = mapView.layoutParams as LinearLayout.LayoutParams
             mapLayoutParams.weight = 0f
             mapLayoutParams.width = LinearLayout.LayoutParams.MATCH_PARENT
             mapView.layoutParams = mapLayoutParams
 
-            // 显示摇杆覆盖层
             joystickOverlay.visibility = View.VISIBLE
 
-            // 重置摇杆
             joystickLeft.resetJoystick()
             joystickRight.resetJoystick()
             driveSpeed = 0f
             driveTurn = 0f
             tvDriveInfo.text = "速度: 0.0  转向: 0.0"
         } else {
-            // 恢复右侧面板
             rightPanel.visibility = View.VISIBLE
-            // 恢复地图布局权重
             val mapLayoutParams = mapView.layoutParams as LinearLayout.LayoutParams
             mapLayoutParams.weight = 1f
             mapLayoutParams.width = 0
             mapView.layoutParams = mapLayoutParams
 
-            // 隐藏摇杆覆盖层
             joystickOverlay.visibility = View.GONE
 
-            // 重置摇杆
             joystickLeft.resetJoystick()
             joystickRight.resetJoystick()
             driveSpeed = 0f
             driveTurn = 0f
 
-            // 发送停止指令
             if (isConnected) {
                 sendRemoteCommand("remote", mapOf("speed" to 0f, "turn" to 0f))
             }
         }
     }
 
-    // 驾驶模式下发送控制指令
     private fun sendDriveControl() {
         if (!isDriveMode || !isConnected) return
         val now = System.currentTimeMillis()
@@ -499,8 +471,7 @@ class RemoteRelayActivity : AppCompatActivity() {
         }
     }
 
-    // 处理接收到的消息
-    private fun handleReceivedMessage(from: String, payload: String) {
+    private fun handleReceivedMessage(payload: String) {
         try {
             val json = JSONObject(payload)
             val type = json.optString("type")
@@ -702,7 +673,7 @@ class RemoteRelayActivity : AppCompatActivity() {
             mapView.onResume()
             loadConfig()
         } catch (e: Exception) {
-            // 忽略地图恢复异常
+            // ignore
         }
     }
 
@@ -711,7 +682,7 @@ class RemoteRelayActivity : AppCompatActivity() {
         try {
             mapView.onPause()
         } catch (e: Exception) {
-            // 忽略地图暂停异常
+            // ignore
         }
     }
 
@@ -720,19 +691,19 @@ class RemoteRelayActivity : AppCompatActivity() {
         try {
             mapView.onDestroy()
         } catch (e: Exception) {
-            // 忽略地图销毁异常
+            // ignore
         }
         try {
             relayClient.disconnect()
         } catch (e: Exception) {
-            // 忽略断开连接异常
+            // ignore
         }
         handler.removeCallbacksAndMessages(null)
         try {
             joystickLeft.resetJoystick()
             joystickRight.resetJoystick()
         } catch (e: Exception) {
-            // 忽略摇杆重置异常
+            // ignore
         }
     }
 }

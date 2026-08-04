@@ -165,7 +165,7 @@
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:text="标记远程位置"
-                    android:textSize="10sp"
+                    android:textSize="11sp"
                     android:backgroundTint="#4A6A9A"
                     android:textColor="#FFFFFF"
                     android:paddingVertical="6dp" />
@@ -176,7 +176,7 @@
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:text="删除选中"
-                    android:textSize="10sp"
+                    android:textSize="11sp"
                     android:backgroundTint="#F44336"
                     android:textColor="#FFFFFF"
                     android:paddingVertical="6dp"
@@ -188,7 +188,7 @@
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:text="清空"
-                    android:textSize="10sp"
+                    android:textSize="11sp"
                     android:backgroundTint="#FF5722"
                     android:textColor="#FFFFFF"
                     android:paddingVertical="6dp"
@@ -323,7 +323,7 @@
                     android:layout_height="wrap_content"
                     android:text="【日志】\n"
                     android:textColor="#CCCCCC"
-                    android:textSize="10sp"
+                    android:textSize="11sp"
                     android:fontFamily="monospace" />
             </ScrollView>
 

@@ -14,6 +14,7 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import com.psd.xypcar.control.BLEController
 import com.psd.xypcar.control.JoystickView
 import com.psd.xypcar.network.UdpDeviceDiscovery
@@ -40,9 +41,7 @@ class RemoteControlActivity : AppCompatActivity() {
     // 图传相关
     private lateinit var ivVideoBackground: ImageView
     private var videoSource: NetworkSource? = null
-    private var isVideoEnabled = false
     private var isVideoRunning = false
-    private val videoHandler = Handler(Looper.getMainLooper())
 
     private val handler = Handler(Looper.getMainLooper())
     private var leftSpeed = 0f
@@ -55,6 +54,7 @@ class RemoteControlActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_remote_control)
 
         ivVideoBackground = findViewById(R.id.iv_video_background)
@@ -206,7 +206,6 @@ class RemoteControlActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // 可根据需要决定是否暂停图传
     }
 
     override fun onDestroy() {
@@ -216,14 +215,12 @@ class RemoteControlActivity : AppCompatActivity() {
         stopVideoStream()
     }
 
-    // ---------- 图传功能 ----------
     private fun startVideoStream() {
         if (isVideoRunning) return
         ivVideoBackground.visibility = View.VISIBLE
         isVideoRunning = true
 
         Thread {
-            // 使用独立的 UDP 发现工具
             val ip = UdpDeviceDiscovery.discover()
             if (ip != null) {
                 runOnUiThread {
@@ -286,7 +283,6 @@ class RemoteControlActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- 控制发送 ----------
     private fun sendCombinedControl() {
         if (!isReadyToSend) return
         val targetSpeed = leftSpeed * maxSpeed
@@ -299,7 +295,6 @@ class RemoteControlActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- 权限 ----------
     private fun checkPermissions(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&

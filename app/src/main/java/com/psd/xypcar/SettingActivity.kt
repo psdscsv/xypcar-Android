@@ -10,6 +10,7 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.view.WindowCompat
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -20,7 +21,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var pageControl: View
     private lateinit var pageNavigation: View
     private lateinit var pageRemote: View
-    private lateinit var pageVideo: View   // 新增
+    private lateinit var pageVideo: View
 
     private lateinit var etDeviceName: EditText
     private lateinit var etMaxSpeed: EditText
@@ -36,7 +37,6 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var etServerHost: EditText
     private lateinit var etServerPort: EditText
 
-    // 图传开关
     private lateinit var switchVideoEnable: SwitchCompat
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +44,7 @@ class SettingsActivity : AppCompatActivity() {
         window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN
         )
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_settings)
 
         prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
@@ -70,7 +71,6 @@ class SettingsActivity : AppCompatActivity() {
         etServerHost = findViewById(R.id.et_server_host)
         etServerPort = findViewById(R.id.et_server_port)
 
-        // 图传控件
         switchVideoEnable = findViewById(R.id.switch_video_enable)
 
         loadSettings()
@@ -94,7 +94,6 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_save_navigation).setOnClickListener { saveNavigation() }
         findViewById<Button>(R.id.btn_save_remote).setOnClickListener { saveRemote() }
         findViewById<Button>(R.id.btn_save_video).setOnClickListener { saveVideo() }
-
     }
 
     private fun showPage(view: View) {
@@ -103,7 +102,7 @@ class SettingsActivity : AppCompatActivity() {
         pageControl.visibility = View.GONE
         pageNavigation.visibility = View.GONE
         pageRemote.visibility = View.GONE
-        pageVideo.visibility = View.GONE   // 新增
+        pageVideo.visibility = View.GONE
         view.visibility = View.VISIBLE
     }
 
@@ -122,7 +121,6 @@ class SettingsActivity : AppCompatActivity() {
         etServerHost.setText(prefs.getString("remote_host", "32.tcp.cpolar.top"))
         etServerPort.setText(prefs.getString("remote_port", "9999"))
 
-        // 图传开关
         switchVideoEnable.isChecked = prefs.getBoolean("video_enabled", false)
     }
 
@@ -140,7 +138,7 @@ class SettingsActivity : AppCompatActivity() {
             editor.putFloat("max_turn", etMaxTurn.text.toString().toFloat())
             editor.apply()
             Toast.makeText(this, "控制参数已保存", Toast.LENGTH_SHORT).show()
-        } catch (e: NumberFormatException) {
+        } catch (_: NumberFormatException) {
             Toast.makeText(this, "请输入有效数字", Toast.LENGTH_SHORT).show()
         }
     }
@@ -155,7 +153,7 @@ class SettingsActivity : AppCompatActivity() {
             editor.putFloat("calibration_angle", etCalibrationAngle.text.toString().toFloat())
             editor.apply()
             Toast.makeText(this, "导航设置已保存", Toast.LENGTH_SHORT).show()
-        } catch (e: NumberFormatException) {
+        } catch (_: NumberFormatException) {
             Toast.makeText(this, "请输入有效数字", Toast.LENGTH_SHORT).show()
         }
     }
@@ -169,7 +167,6 @@ class SettingsActivity : AppCompatActivity() {
         Toast.makeText(this, "远程设置已保存", Toast.LENGTH_SHORT).show()
     }
 
-    // 新增：保存图传设置
     private fun saveVideo() {
         val editor = prefs.edit()
         editor.putBoolean("video_enabled", switchVideoEnable.isChecked)

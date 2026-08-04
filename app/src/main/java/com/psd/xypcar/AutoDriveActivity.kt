@@ -23,6 +23,7 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
@@ -38,7 +39,7 @@ import com.psd.xypcar.remote.RelayClient
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.*
+import java.util.Locale
 
 class AutoDriveActivity : AppCompatActivity(),
     AMapLocationListener,
@@ -61,7 +62,7 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var tvBleStatus: TextView
     private lateinit var tvSpeed: TextView
     private lateinit var tvTurn: TextView
-    private lateinit var btnLocate: Button
+    private lateinit var btnLocate: ImageButton
     private lateinit var btnRemoteControl: Button
 
     // Tab 按钮
@@ -85,7 +86,7 @@ class AutoDriveActivity : AppCompatActivity(),
     // ---------- 高德定位 ----------
     private lateinit var locationClient: AMapLocationClient
     private var currentLocation: AMapLocation? = null
-    private var isFirstLocation = true
+    // isFirstLocation 未使用，已删除
 
     // ---------- 传感器 ----------
     private lateinit var sensorManager: SensorManager
@@ -133,7 +134,7 @@ class AutoDriveActivity : AppCompatActivity(),
     private var isRequestingPermission = false
 
     // ---------- 新增：跟随模式 ----------
-    private var isFollowing = false   // 是否处于持续跟随模式
+    private var isFollowing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -141,6 +142,8 @@ class AutoDriveActivity : AppCompatActivity(),
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
         )
+        // 替换为新的全屏方式
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_autodrive)
 
         MapsInitializer.updatePrivacyShow(this, true, true)
@@ -154,7 +157,6 @@ class AutoDriveActivity : AppCompatActivity(),
         aMap.uiSettings.isCompassEnabled = true
         aMap.isMyLocationEnabled = true
 
-        // ===== 修改：定位样式改为 LOCATION_TYPE_LOCATE，不自动跟随 =====
         val myLocationStyle = MyLocationStyle()
         myLocationStyle.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATE)
         aMap.myLocationStyle = myLocationStyle
@@ -321,7 +323,6 @@ class AutoDriveActivity : AppCompatActivity(),
             }
         }
 
-        // ===== 修改：定位按钮点击进入跟随模式 =====
         btnLocate.setOnClickListener {
             val loc = currentLocation
             if (loc == null) {
@@ -329,14 +330,11 @@ class AutoDriveActivity : AppCompatActivity(),
                 return@setOnClickListener
             }
 
-            // 进入跟随模式
             isFollowing = true
             val style = MyLocationStyle()
             style.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATION_ROTATE)
             aMap.myLocationStyle = style
 
-
-            // 设置触摸监听：用户触摸地图即退出跟随
             aMap.setOnMapTouchListener { event ->
                 if (event.action == MotionEvent.ACTION_DOWN) {
                     if (isFollowing) {
@@ -348,12 +346,10 @@ class AutoDriveActivity : AppCompatActivity(),
             Toast.makeText(this, "进入跟随模式，拖动地图退出", Toast.LENGTH_SHORT).show()
         }
 
-        // 远程连接按钮（切换）
         btnRemoteControl.setOnClickListener {
             toggleRemoteConnection()
         }
 
-        // 延迟连接BLE，避免在权限请求过程中调用
         handler.postDelayed({
             connectBle()
         }, 500)
@@ -362,19 +358,16 @@ class AutoDriveActivity : AppCompatActivity(),
         btnRemoteControl.text = "📡 连接远程"
     }
 
-    // ===== 新增：取消跟随模式 =====
     private fun cancelFollowing() {
         if (!isFollowing) return
         isFollowing = false
         aMap.setOnMapTouchListener(null)
-        // 切换回“仅定位”模式，不再自动居中
         val style = MyLocationStyle()
         style.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATE)
         aMap.myLocationStyle = style
         Toast.makeText(this, "已退出跟随模式", Toast.LENGTH_SHORT).show()
     }
 
-    // ---------- 远程连接切换 ----------
     private fun toggleRemoteConnection() {
         if (remoteConnecting) {
             Toast.makeText(this, "正在连接中...", Toast.LENGTH_SHORT).show()
@@ -485,8 +478,7 @@ class AutoDriveActivity : AppCompatActivity(),
                 val id = input.text.toString().trim()
                 if (id.isNotEmpty()) {
                     remoteTargetId = id
-                    getSharedPreferences("car_config", Context.MODE_PRIVATE).edit()
-                        .putString("remote_target_id", id).apply()
+                    getSharedPreferences("car_config", Context.MODE_PRIVATE).edit().putString("remote_target_id", id).apply()
                     connectRemote()
                 } else {
                     Toast.makeText(this, "ID不能为空", Toast.LENGTH_SHORT).show()
@@ -512,7 +504,6 @@ class AutoDriveActivity : AppCompatActivity(),
         }
     }
 
-    // ---------- Tab 切换 ----------
     private fun switchTab(showControl: Boolean) {
         if (showControl) {
             scrollControl.visibility = View.VISIBLE
@@ -528,7 +519,6 @@ class AutoDriveActivity : AppCompatActivity(),
         scrollControl.smoothScrollTo(0, 0)
     }
 
-    // ---------- 目标点高亮 ----------
     private fun selectWaypoint(position: Int) {
         if (position < 0 || position >= waypointMarkers.size) return
         if (selectedMarkerIndex == position) return
@@ -552,7 +542,6 @@ class AutoDriveActivity : AppCompatActivity(),
         lvWaypoints.clearChoices()
     }
 
-    // ---------- 添加点 ----------
     private fun addWaypoint(point: LatLonPoint) {
         val marker = aMap.addMarker(
             MarkerOptions()
@@ -584,7 +573,6 @@ class AutoDriveActivity : AppCompatActivity(),
         updateGuideLine()
     }
 
-    // ---------- 删除点 ----------
     private fun deleteWaypoint(position: Int) {
         if (position < 0 || position >= waypoints.size) return
 
@@ -613,7 +601,6 @@ class AutoDriveActivity : AppCompatActivity(),
         lvWaypoints.clearChoices()
     }
 
-    // ---------- 清空所有点 ----------
     private fun clearAllWaypoints() {
         clearSelectedMarker()
         waypointMarkers.forEach { it.remove() }
@@ -629,7 +616,6 @@ class AutoDriveActivity : AppCompatActivity(),
         lvWaypoints.clearChoices()
     }
 
-    // ---------- 线条更新 ----------
     private fun updatePathLine() {
         pathLine?.remove()
         pathLine = null
@@ -690,7 +676,6 @@ class AutoDriveActivity : AppCompatActivity(),
         targetCircle?.radius = targetArrivalDistance.toDouble()
     }
 
-    // ---------- 定位回调 ----------
     override fun onLocationChanged(location: AMapLocation?) {
         if (location != null && location.errorCode == 0) {
             currentLocation = location
@@ -698,7 +683,6 @@ class AutoDriveActivity : AppCompatActivity(),
         }
     }
 
-    // ---------- 传感器 ----------
     override fun onSensorChanged(event: SensorEvent?) {
         event?.let {
             when (it.sensor.type) {
@@ -742,7 +726,6 @@ class AutoDriveActivity : AppCompatActivity(),
         )
     }
 
-    // ---------- BLE ----------
     private fun connectBle() {
         if (!bleController.isBleSupported()) {
             tvBleStatus.text = "BLE: 不支持"
@@ -769,7 +752,6 @@ class AutoDriveActivity : AppCompatActivity(),
         }, 10000)
     }
 
-    // ---------- 权限 ----------
     private fun checkLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
@@ -832,7 +814,6 @@ class AutoDriveActivity : AppCompatActivity(),
         }
     }
 
-    // ---------- 校准逻辑 ----------
     private fun startCalibration() {
         if (isCalibrating || isNavigating) return
         isCalibrating = true
@@ -892,7 +873,6 @@ class AutoDriveActivity : AppCompatActivity(),
         btnStopNav.text = "停止导航"
     }
 
-    // ---------- 导航控制 ----------
     private fun startNavigation() {
         if (waypoints.isEmpty()) return
         if (!isBleConnected) return
@@ -992,7 +972,6 @@ class AutoDriveActivity : AppCompatActivity(),
         }
     }
 
-    // ---------- 停止导航 ----------
     private fun stopNavigation() {
         if (isCalibrating) {
             cancelCalibration()
@@ -1016,7 +995,6 @@ class AutoDriveActivity : AppCompatActivity(),
         updateGuideLine()
     }
 
-    // ---------- 远程控制：发送状态 ----------
     private fun startStatusSending() {
         statusSendRunnable = object : Runnable {
             override fun run() {
@@ -1063,12 +1041,11 @@ class AutoDriveActivity : AppCompatActivity(),
             CoroutineScope(Dispatchers.IO).launch {
                 relayClient?.sendMessage(remoteTargetId, payload)
             }
-        } catch (e: Exception) {
-            // 忽略发送错误
+        } catch (_: Exception) {
+            // ignore
         }
     }
 
-    // ---------- 发送远程指令 ----------
     private fun sendRemoteCommand(type: String, params: Map<String, Any> = emptyMap()) {
         if (!remoteEnabled || relayClient?.isConnected() != true) return
         if (remoteTargetId.isEmpty()) return
@@ -1081,12 +1058,11 @@ class AutoDriveActivity : AppCompatActivity(),
             CoroutineScope(Dispatchers.IO).launch {
                 relayClient?.sendMessage(remoteTargetId, json.toString())
             }
-        } catch (e: Exception) {
-            // 忽略
+        } catch (_: Exception) {
+            // ignore
         }
     }
 
-    // ---------- 远程控制：接收指令 ----------
     private fun handleRemoteCommand(payload: String) {
         try {
             val json = JSONObject(payload)
@@ -1097,8 +1073,8 @@ class AutoDriveActivity : AppCompatActivity(),
                     val turn = json.optDouble("turn", 0.0).toFloat()
                     runOnUiThread {
                         bleController.sendControl(speed, turn, stop = false)
-                        tvSpeed.text = String.format("速度: %.2f m/s", speed)
-                        tvTurn.text = String.format("转向: %.1f °/s", turn)
+                        tvSpeed.text = String.format(Locale.US, "速度: %.2f m/s", speed)
+                        tvTurn.text = String.format(Locale.US, "转向: %.1f °/s", turn)
                         tvInfo.text = "远程控制中..."
                         handler.postDelayed({
                             if (!isNavigating) {
@@ -1163,12 +1139,11 @@ class AutoDriveActivity : AppCompatActivity(),
                     // 未知指令
                 }
             }
-        } catch (e: Exception) {
-            // 忽略解析错误
+        } catch (_: Exception) {
+            // ignore
         }
     }
 
-    // ---------- 辅助计算 ----------
     private fun distanceBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
         val results = FloatArray(1)
         Location.distanceBetween(lat1, lng1, lat2, lng2, results)
@@ -1194,7 +1169,6 @@ class AutoDriveActivity : AppCompatActivity(),
         return LatLng(Math.toDegrees(lat2), Math.toDegrees(lon2))
     }
 
-    // ---------- 生命周期 ----------
     override fun onResume() {
         super.onResume()
         mapView.onResume()
@@ -1239,7 +1213,6 @@ class AutoDriveActivity : AppCompatActivity(),
         stopStatusSending()
         handler.removeCallbacksAndMessages(null)
         sensorManager.unregisterListener(this)
-        // 清理地图触摸监听，防止内存泄漏
         aMap.setOnMapTouchListener(null)
     }
 }

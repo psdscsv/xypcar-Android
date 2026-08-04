@@ -1,4 +1,4 @@
-package com.psd.xypcar.network   // 根据实际包名修改
+package com.psd.xypcar.network
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -11,33 +11,24 @@ class NetworkSource(
     private val ip: String,
     private val port: Int = 8080
 ) {
-
-    val displayName: String = "网络流 ($ip)"
-
     private var socket: Socket? = null
     private var receiveThread: Thread? = null
     @Volatile private var running = false
-
-    // 声明为可空类型，以便赋 null
     private var onFrame: ((Bitmap) -> Unit)? = null
 
     fun start(onFrame: (Bitmap) -> Unit): Boolean {
         if (running) return false
         this.onFrame = onFrame
-
         receiveThread = Thread {
             try {
                 socket = Socket(ip, port)
                 val output = PrintWriter(socket!!.getOutputStream(), true)
                 output.println("start")
-
                 running = true
                 receiveLoop(socket!!)
             } catch (e: Exception) {
                 Log.e("NetworkSource", "Connection failed", e)
                 running = false
-                // 不需要将 onFrame 置 null，以免影响外部，但可以清掉
-                // 实际停止时会置 null
             }
         }
         receiveThread?.start()
@@ -58,7 +49,6 @@ class NetworkSource(
         socket = null
         receiveThread?.interrupt()
         receiveThread = null
-        // 清除回调，避免泄漏
         onFrame = null
     }
 
