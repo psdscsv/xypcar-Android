@@ -327,15 +327,20 @@ class RemoteControlActivity : AppCompatActivity() {
         val targetSpeed = leftSpeed * maxSpeed
         val targetTurn = rightTurn * maxTurn
         val now = System.currentTimeMillis()
+
+        // 归零指令：强制发送，忽略限频
+        if (targetSpeed == 0f && targetTurn == 0f) {
+            bleController.sendControl(0f, 0f, stop = false)
+            lastSendTime = now
+            valueDisplay.text = "速度: 0.0 m/s  转向: 0 °/s"
+            return
+        }
+
+        // 非归零指令：继续限频
         if (now - lastSendTime >= sendIntervalMs) {
             bleController.sendControl(targetSpeed, targetTurn, stop = false)
             lastSendTime = now
-            valueDisplay.text = String.format(
-                Locale.US,
-                "速度: %.1f m/s  转向: %.0f °/s",
-                targetSpeed,
-                targetTurn
-            )
+            valueDisplay.text = String.format(Locale.US, "速度: %.1f m/s  转向: %.0f °/s", targetSpeed, targetTurn)
         }
     }
 
