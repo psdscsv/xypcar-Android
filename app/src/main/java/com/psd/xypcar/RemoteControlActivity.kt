@@ -17,8 +17,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.psd.xypcar.control.BLEController
 import com.psd.xypcar.control.JoystickView
-import com.psd.xypcar.network.UdpDeviceDiscovery
 import com.psd.xypcar.network.NetworkSource
+import com.psd.xypcar.network.UdpDeviceDiscovery
 import java.util.Locale
 import android.content.Intent
 import android.widget.ImageButton
@@ -50,10 +50,16 @@ class RemoteControlActivity : AppCompatActivity() {
     private val sendIntervalMs = 20L
     private var isReadyToSend = false
 
+    // ---------- 摇杆归零检测 ----------
+    private val checkHandler = Handler(Looper.getMainLooper())
+    private var checkRunnable: Runnable? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN
+        )
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_remote_control)
 
@@ -77,7 +83,12 @@ class RemoteControlActivity : AppCompatActivity() {
             override fun onConnected() {
                 runOnUiThread {
                     statusText.text = "✅ 已连接"
-                    statusText.setTextColor(ContextCompat.getColor(this@RemoteControlActivity, android.R.color.holo_green_light))
+                    statusText.setTextColor(
+                        ContextCompat.getColor(
+                            this@RemoteControlActivity,
+                            android.R.color.holo_green_light
+                        )
+                    )
                     connectBtn.isEnabled = false
                     disconnectBtn.isEnabled = true
                     Toast.makeText(this@RemoteControlActivity, "连接成功", Toast.LENGTH_SHORT).show()
@@ -89,7 +100,12 @@ class RemoteControlActivity : AppCompatActivity() {
                 runOnUiThread {
                     isReadyToSend = false
                     statusText.text = "❌ 未连接"
-                    statusText.setTextColor(ContextCompat.getColor(this@RemoteControlActivity, android.R.color.holo_red_light))
+                    statusText.setTextColor(
+                        ContextCompat.getColor(
+                            this@RemoteControlActivity,
+                            android.R.color.holo_red_light
+                        )
+                    )
                     connectBtn.isEnabled = true
                     disconnectBtn.isEnabled = false
                     Toast.makeText(this@RemoteControlActivity, "连接断开", Toast.LENGTH_SHORT).show()
@@ -138,7 +154,12 @@ class RemoteControlActivity : AppCompatActivity() {
             bleController.targetDeviceName = deviceName
 
             statusText.text = "🔍 扫描中..."
-            statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_blue_light))
+            statusText.setTextColor(
+                ContextCompat.getColor(
+                    this,
+                    android.R.color.holo_blue_light
+                )
+            )
             connectBtn.isEnabled = false
             bleController.startScan()
 
@@ -146,7 +167,12 @@ class RemoteControlActivity : AppCompatActivity() {
                 bleController.stopScan()
                 if (!bleController.isConnected()) {
                     statusText.text = "⏱ 扫描超时，未找到设备"
-                    statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_red_light))
+                    statusText.setTextColor(
+                        ContextCompat.getColor(
+                            this,
+                            android.R.color.holo_red_light
+                        )
+                    )
                     connectBtn.isEnabled = true
                 }
             }, 10000)
@@ -155,7 +181,12 @@ class RemoteControlActivity : AppCompatActivity() {
         disconnectBtn.setOnClickListener {
             isReadyToSend = false
             statusText.text = "⏳ 正在断开..."
-            statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_orange_light))
+            statusText.setTextColor(
+                ContextCompat.getColor(
+                    this,
+                    android.R.color.holo_orange_light
+                )
+            )
             bleController.disconnect()
         }
 
@@ -183,6 +214,9 @@ class RemoteControlActivity : AppCompatActivity() {
         if (prefs.getBoolean("video_enabled", false)) {
             startVideoStream()
         }
+
+        // 启动摇杆归零定时检测
+        startFailsafeCheck()
     }
 
     private fun loadConfig() {
@@ -206,6 +240,7 @@ class RemoteControlActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        // 可选：暂停时停止图传以节省资源，但保持连接
     }
 
     override fun onDestroy() {
@@ -213,8 +248,10 @@ class RemoteControlActivity : AppCompatActivity() {
         bleController.disconnect()
         handler.removeCallbacksAndMessages(null)
         stopVideoStream()
+        stopFailsafeCheck()
     }
 
+    // ---------- 图传功能 ----------
     private fun startVideoStream() {
         if (isVideoRunning) return
         ivVideoBackground.visibility = View.VISIBLE
@@ -273,6 +310,7 @@ class RemoteControlActivity : AppCompatActivity() {
         val started = videoSource?.start { bitmap ->
             runOnUiThread {
                 ivVideoBackground.setImageBitmap(bitmap)
+                // 可选：居中偏上偏移（若需要可在此调用 applyImageOffset）
             }
         } ?: false
         if (!started) {
@@ -283,6 +321,7 @@ class RemoteControlActivity : AppCompatActivity() {
         }
     }
 
+    // ---------- 控制发送 ----------
     private fun sendCombinedControl() {
         if (!isReadyToSend) return
         val targetSpeed = leftSpeed * maxSpeed
@@ -291,17 +330,81 @@ class RemoteControlActivity : AppCompatActivity() {
         if (now - lastSendTime >= sendIntervalMs) {
             bleController.sendControl(targetSpeed, targetTurn, stop = false)
             lastSendTime = now
-            valueDisplay.text = String.format(Locale.US,"速度: %.1f m/s  转向: %.0f °/s", targetSpeed, targetTurn)
+            valueDisplay.text = String.format(
+                Locale.US,
+                "速度: %.1f m/s  转向: %.0f °/s",
+                targetSpeed,
+                targetTurn
+            )
         }
     }
 
+    // ---------- 摇杆归零定时检测 ----------
+    private fun startFailsafeCheck() {
+        checkRunnable = object : Runnable {
+            override fun run() {
+                if (isReadyToSend) {
+                    val leftTouching = leftJoystick.isTouching()
+                    val rightTouching = rightJoystick.isTouching()
+                    var needSend = false
+
+                    // 如果左摇杆未触摸但速度不为0，强制归零
+                    if (!leftTouching && leftSpeed != 0f) {
+                        leftSpeed = 0f
+                        needSend = true
+                    }
+                    // 如果右摇杆未触摸但转向不为0，强制归零
+                    if (!rightTouching && rightTurn != 0f) {
+                        rightTurn = 0f
+                        needSend = true
+                    }
+
+                    if (needSend) {
+                        // 立即发送停止指令（或当前值）
+                        val targetSpeed = leftSpeed * maxSpeed
+                        val targetTurn = rightTurn * maxTurn
+                        bleController.sendControl(targetSpeed, targetTurn, stop = false)
+                        valueDisplay.text = String.format(
+                            Locale.US,
+                            "速度: %.1f m/s  转向: %.0f °/s",
+                            targetSpeed,
+                            targetTurn
+                        )
+                        lastSendTime = System.currentTimeMillis()
+                    }
+                }
+                // 每 100ms 检查一次
+                checkHandler.postDelayed(this, 100)
+            }
+        }
+        checkHandler.post(checkRunnable!!)
+    }
+
+    private fun stopFailsafeCheck() {
+        checkRunnable?.let { checkHandler.removeCallbacks(it) }
+        checkRunnable = null
+    }
+
+    // ---------- 权限 ----------
     private fun checkPermissions(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.BLUETOOTH_SCAN
+            ) == PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.BLUETOOTH_CONNECT
+                    ) == PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
         } else {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
         }
     }
 
@@ -318,7 +421,11 @@ class RemoteControlActivity : AppCompatActivity() {
         ActivityCompat.requestPermissions(this, permissions, 1001)
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 1001) {
             if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {

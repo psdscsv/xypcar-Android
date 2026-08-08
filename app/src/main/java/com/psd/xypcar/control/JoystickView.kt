@@ -171,4 +171,5 @@ class JoystickView(context: Context, attrs: AttributeSet?) : View(context, attrs
             parent?.requestDisallowInterceptTouchEvent(false)
         }
     }
+    fun isTouching(): Boolean = isTouching
 }
