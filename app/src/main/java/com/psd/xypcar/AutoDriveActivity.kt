@@ -3,6 +3,7 @@ package com.psd.xypcar
 import android.Manifest
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.hardware.Sensor
@@ -15,6 +16,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +25,7 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
@@ -39,6 +42,7 @@ import com.psd.xypcar.remote.RelayClient
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.Locale
 
 class AutoDriveActivity : AppCompatActivity(),
@@ -83,10 +87,13 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var waypointAdapter: ArrayAdapter<String>
     private val waypointDisplayList = mutableListOf<String>()
 
+    private val REQUEST_LOAD_FILE = 1001
+
     // ---------- 高德定位 ----------
     private lateinit var locationClient: AMapLocationClient
     private var currentLocation: AMapLocation? = null
-    // isFirstLocation 未使用，已删除
+
+    private var isFirstLocation = true  // 用于标记是否首次定位
 
     // ---------- 传感器 ----------
     private lateinit var sensorManager: SensorManager
@@ -133,8 +140,13 @@ class AutoDriveActivity : AppCompatActivity(),
     // ---------- 权限请求标志 ----------
     private var isRequestingPermission = false
 
-    // ---------- 新增：跟随模式 ----------
+    // ---------- 跟随模式 ----------
     private var isFollowing = false
+
+    // ---------- 路径点存储 ----------
+    private lateinit var btnSaveWaypoints: Button
+    private lateinit var btnLoadWaypoints: Button
+    private lateinit var btnExportWaypoints: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -181,6 +193,10 @@ class AutoDriveActivity : AppCompatActivity(),
         tabPoints = findViewById(R.id.tab_points)
         scrollControl = findViewById(R.id.scroll_control)
         pagePoints = findViewById(R.id.page_points)
+
+        btnSaveWaypoints = findViewById(R.id.btn_save_waypoints)
+        btnLoadWaypoints = findViewById(R.id.btn_load_waypoints)
+        btnExportWaypoints = findViewById(R.id.btn_export_waypoints)
 
         waypointAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice, waypointDisplayList) {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
@@ -349,6 +365,17 @@ class AutoDriveActivity : AppCompatActivity(),
         btnRemoteControl.setOnClickListener {
             toggleRemoteConnection()
         }
+        btnSaveWaypoints.setOnClickListener {
+            saveWaypointsToFile()
+        }
+
+        btnLoadWaypoints.setOnClickListener {
+            loadWaypointsFromFile()
+        }
+
+        btnExportWaypoints.setOnClickListener {
+            exportWaypoints()
+        }
 
         handler.postDelayed({
             connectBle()
@@ -392,7 +419,6 @@ class AutoDriveActivity : AppCompatActivity(),
             Toast.makeText(this, "请先在设置中配置用户名", Toast.LENGTH_LONG).show()
             return
         }
-
         if (remoteTargetId.isEmpty()) {
             showTargetIdDialog()
             return
@@ -402,64 +428,81 @@ class AutoDriveActivity : AppCompatActivity(),
         btnRemoteControl.text = "连接中..."
         btnRemoteControl.isEnabled = false
 
-        if (relayClient == null) {
-            relayClient = RelayClient(
-                serverHost = host,
-                serverPort = port,
-                onMessageReceived = { from, payload ->
-                    if (from == remoteTargetId || remoteTargetId.isEmpty()) {
-                        handleRemoteCommand(payload)
-                    }
-                },
-                onStatusChanged = { status ->
-                    runOnUiThread {
-                        if (status.contains("注册成功")) {
-                            remoteEnabled = true
-                            remoteConnecting = false
-                            btnRemoteControl.text = "📡 断开远程"
-                            btnRemoteControl.isEnabled = true
-                            RemoteControlHelper.relayClient = relayClient
-                            RemoteControlHelper.targetId = remoteTargetId
-                            startStatusSending()
-                            Toast.makeText(this@AutoDriveActivity, "远程连接成功", Toast.LENGTH_SHORT).show()
-                        } else if (status.contains("断开") || status.contains("错误")) {
-                            remoteEnabled = false
-                            remoteConnecting = false
-                            btnRemoteControl.text = "📡 连接远程"
-                            btnRemoteControl.isEnabled = true
-                            stopStatusSending()
-                            Toast.makeText(this@AutoDriveActivity, "远程断开", Toast.LENGTH_SHORT).show()
-                        }
+        // 创建新的 RelayClient（旧对象已在 disconnect 时置 null）
+        relayClient = RelayClient(
+            serverHost = host,
+            serverPort = port,
+            onMessageReceived = { from, payload ->
+                if (from == remoteTargetId || remoteTargetId.isEmpty()) {
+                    handleRemoteCommand(payload)
+                }
+            },
+            onStatusChanged = { status ->
+                runOnUiThread {
+                    // 保留回调更新，作为补充
+                    if (status.contains("注册成功")) {
+                        remoteEnabled = true
+                        remoteConnecting = false
+                        btnRemoteControl.text = "📡 断开远程"
+                        btnRemoteControl.isEnabled = true
+                        RemoteControlHelper.relayClient = relayClient
+                        RemoteControlHelper.targetId = remoteTargetId
+                        startStatusSending()
+                        Toast.makeText(this@AutoDriveActivity, "远程连接成功", Toast.LENGTH_SHORT).show()
+                    } else if (status.contains("断开") || status.contains("错误")) {
+                        remoteEnabled = false
+                        remoteConnecting = false
+                        btnRemoteControl.text = "📡 连接远程"
+                        btnRemoteControl.isEnabled = true
+                        stopStatusSending()
+                        Toast.makeText(this@AutoDriveActivity, "远程断开", Toast.LENGTH_SHORT).show()
                     }
                 }
-            )
-        }
+            }
+        )
 
         val deviceId = if (remoteUsername.isNotEmpty()) remoteUsername else Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         CoroutineScope(Dispatchers.IO).launch {
             val success = relayClient?.connect(deviceId) ?: false
             withContext(Dispatchers.Main) {
                 if (!success) {
+                    // 连接失败
                     remoteConnecting = false
                     btnRemoteControl.text = "📡 连接远程"
                     btnRemoteControl.isEnabled = true
                     Toast.makeText(this@AutoDriveActivity, "连接失败", Toast.LENGTH_SHORT).show()
+                } else {
+                    // 连接成功，确保 UI 更新（防止回调未触发）
+                    if (!remoteEnabled) {
+                        remoteEnabled = true
+                        remoteConnecting = false
+                        btnRemoteControl.text = "📡 断开远程"
+                        btnRemoteControl.isEnabled = true
+                        RemoteControlHelper.relayClient = relayClient
+                        RemoteControlHelper.targetId = remoteTargetId
+                        startStatusSending()
+                        Toast.makeText(this@AutoDriveActivity, "远程连接成功", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
 
+        // 超时保护（15秒）
         handler.postDelayed({
             if (remoteConnecting && !remoteEnabled) {
                 remoteConnecting = false
                 btnRemoteControl.text = "📡 连接远程"
                 btnRemoteControl.isEnabled = true
                 Toast.makeText(this, "连接超时", Toast.LENGTH_SHORT).show()
+                relayClient?.disconnect()
+                relayClient = null
             }
         }, 15000)
     }
 
     private fun disconnectRemote() {
         relayClient?.disconnect()
+        relayClient = null          // 释放引用，下次连接重新创建
         remoteEnabled = false
         remoteConnecting = false
         btnRemoteControl.text = "📡 连接远程"
@@ -680,6 +723,15 @@ class AutoDriveActivity : AppCompatActivity(),
         if (location != null && location.errorCode == 0) {
             currentLocation = location
             updateAllLines()
+
+            //首次获取位置时自动移动地图并设定缩放
+            if (isFirstLocation) {
+                isFirstLocation = false
+                val latLng = LatLng(location.latitude, location.longitude)
+                handler.postDelayed({
+                    aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
+                }, 100)
+            }
         }
     }
 
@@ -1214,6 +1266,135 @@ class AutoDriveActivity : AppCompatActivity(),
         handler.removeCallbacksAndMessages(null)
         sensorManager.unregisterListener(this)
         aMap.setOnMapTouchListener(null)
+    }
+    /**
+     * 保存当前路径点到内部存储文件（waypoints.json）
+     */
+    private fun saveWaypointsToFile() {
+        if (waypoints.isEmpty()) {
+            Toast.makeText(this, "没有路径点可保存", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val jsonArray = JSONArray()
+            waypoints.forEach { point ->
+                val obj = JSONObject().apply {
+                    put("lat", point.latitude)
+                    put("lng", point.longitude)
+                }
+                jsonArray.put(obj)
+            }
+            val fileName = "waypoints.json"
+            val file = File(filesDir, fileName)
+            file.writeText(jsonArray.toString())
+            Toast.makeText(this, "已保存 ${waypoints.size} 个点到 $fileName", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * 从用户选择的文件加载路径点（覆盖当前列表）
+     */
+    private fun loadWaypointsFromFile() {
+        // 使用系统文件选择器选择 JSON 文件
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            // 如果部分文件管理器不支持 application/json，可降级为 */*
+            // type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain"))
+        }
+        startActivityForResult(intent, REQUEST_LOAD_FILE)
+    }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_LOAD_FILE && resultCode == RESULT_OK) {
+            data?.data?.let { uri ->
+                try {
+                    contentResolver.openInputStream(uri)?.use { inputStream ->
+                        val jsonString = inputStream.bufferedReader().readText()
+                        val jsonArray = JSONArray(jsonString)
+                        if (jsonArray.length() == 0) {
+                            Toast.makeText(this, "文件为空", Toast.LENGTH_SHORT).show()
+                            return
+                        }
+                        // 停止导航，清空当前所有点
+                        if (isNavigating || isCalibrating) stopNavigation()
+                        clearAllWaypoints()
+
+                        for (i in 0 until jsonArray.length()) {
+                            val obj = jsonArray.getJSONObject(i)
+                            val lat = obj.getDouble("lat")
+                            val lng = obj.getDouble("lng")
+                            addWaypoint(LatLonPoint(lat, lng))
+                        }
+                        Toast.makeText(this, "已加载 ${waypoints.size} 个路径点", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(this, "加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    e.printStackTrace()
+                }
+            } ?: Toast.makeText(this, "未选择文件", Toast.LENGTH_SHORT).show()
+        }
+    }
+    /**
+     * 导出路径点（通过 Intent 分享）
+     * 优先使用 FileProvider 分享 JSON 文件，若未配置则降级为纯文本分享
+     */
+    private fun exportWaypoints() {
+        if (waypoints.isEmpty()) {
+            Toast.makeText(this, "没有路径点可导出", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val jsonArray = JSONArray()
+            waypoints.forEach { point ->
+                val obj = JSONObject().apply {
+                    put("lat", point.latitude)
+                    put("lng", point.longitude)
+                }
+                jsonArray.put(obj)
+            }
+            val jsonString = jsonArray.toString()
+
+            // 尝试通过文件分享（需要 FileProvider）
+            val tempFile = File(cacheDir, "waypoints_export.json")
+            tempFile.writeText(jsonString)
+            val uri = FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                tempFile
+            )
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "导出路径点"))
+        } catch (e: Exception) {
+            // 如果 FileProvider 未配置，降级为纯文本分享
+            try {
+                // 重新获取 jsonString（因作用域问题，需重新生成）
+                val fallbackJson = JSONArray().apply {
+                    waypoints.forEach { point ->
+                        put(JSONObject().apply {
+                            put("lat", point.latitude)
+                            put("lng", point.longitude)
+                        })
+                    }
+                }.toString()
+                val textIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, fallbackJson)
+                    putExtra(Intent.EXTRA_SUBJECT, "路径点数据")
+                }
+                startActivity(Intent.createChooser(textIntent, "导出路径点（文本）"))
+            } catch (e2: Exception) {
+                Toast.makeText(this, "导出失败: ${e2.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 }
 

@@ -5,19 +5,17 @@
     android:background="#1A1A2E"
     android:orientation="horizontal">
 
-    <!-- ========== 左侧：地图区域（含悬浮按钮） ========== -->
+    <!-- 左侧：地图区域（含悬浮按钮） -->
     <FrameLayout
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1">
 
-        <!-- 高德地图 -->
         <com.amap.api.maps.MapView
             android:id="@+id/autodrive_map"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
-        <!-- 定位按钮：悬浮在地图右下角 -->
         <ImageButton
             android:id="@+id/btn_locate"
             android:layout_width="48dp"
@@ -25,10 +23,9 @@
             android:layout_gravity="bottom|end"
             android:layout_marginBottom="100dp"
             android:background="@raw/ic_locate" />
-
     </FrameLayout>
 
-    <!-- ========== 右侧面板 ========== -->
+    <!-- 右侧面板 -->
     <LinearLayout
         android:layout_width="320dp"
         android:layout_height="match_parent"
@@ -36,7 +33,7 @@
         android:orientation="vertical"
         android:padding="8dp">
 
-        <!-- Tab 切换按钮 -->
+        <!-- Tab 切换 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -191,7 +188,7 @@
                     android:dividerHeight="1dp"
                     android:padding="4dp" />
 
-                <!-- 三个按钮并排 -->
+                <!-- 第一行：原有按钮 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -229,7 +226,46 @@
                         android:text="清空所有"
                         android:textColor="#FFFFFF"
                         android:textSize="12sp" />
+                </LinearLayout>
 
+                <!-- 第二行：新增的保存 / 加载 / 导出 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btn_save_waypoints"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:backgroundTint="#4CAF50"
+                        android:text="保存"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btn_load_waypoints"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:layout_weight="1"
+                        android:backgroundTint="#FF9800"
+                        android:text="加载"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btn_export_waypoints"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:layout_weight="1"
+                        android:backgroundTint="#9C27B0"
+                        android:text="导出"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp" />
                 </LinearLayout>
 
             </LinearLayout>
