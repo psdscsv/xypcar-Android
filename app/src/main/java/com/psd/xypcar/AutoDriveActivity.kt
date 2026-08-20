@@ -113,6 +113,8 @@ class AutoDriveActivity : AppCompatActivity(),
     private var targetArrivalDistance = 10f
     private var calibrationTime = 2.0f
     private var calibrationAngle = 5.0f
+    // 沿"当前点→下一点"连线导航时的前瞻距离（米）
+    private var pathLookahead = 5f
 
     private var targetCircle: Circle? = null
 
@@ -681,11 +683,16 @@ class AutoDriveActivity : AppCompatActivity(),
         if (waypoints.isEmpty()) return
 
         val currentLatLng = LatLng(loc.latitude, loc.longitude)
-        val targetIdx = if (isNavigating) currentTargetIndex else 0
-        if (targetIdx >= waypoints.size) return
 
-        val target = waypoints[targetIdx]
-        val targetLatLng = LatLng(target.latitude, target.longitude)
+        // 导航中显示路径连线上应逼近的引导点；未导航时显示首个目标点
+        val goal = if (isNavigating) {
+            computePathGoal()
+        } else {
+            if (waypoints.isEmpty()) return
+            waypoints[0]
+        } ?: return
+
+        val targetLatLng = LatLng(goal.latitude, goal.longitude)
 
         guideLine = aMap.addPolyline(
             PolylineOptions()
@@ -983,8 +990,18 @@ class AutoDriveActivity : AppCompatActivity(),
             return
         }
 
-        val targetBearing = bearingBetween(currentLoc.latitude, currentLoc.longitude,
-            target.latitude, target.longitude)
+        // 计算目标航向：
+        // - 若存在下一个目标点，则沿"当前点→下一点"的连线导航：使车辆逼近该连线，
+        //   前进方向指向下一个目标点（避免直接冲向目标点导致偏离路径/切角）
+        // - 若为最后一个目标点，则直接导航向该点
+        val targetBearing = if (currentTargetIndex + 1 < waypoints.size) {
+            val next = waypoints[currentTargetIndex + 1]
+            val goal = pathGoalOnSegment(currentLoc, target, next)
+            bearingBetween(currentLoc.latitude, currentLoc.longitude, goal.latitude, goal.longitude)
+        } else {
+            bearingBetween(currentLoc.latitude, currentLoc.longitude,
+                target.latitude, target.longitude)
+        }
 
         val currentBearing = if (deviceBearing != 0f) {
             deviceBearing
@@ -1206,6 +1223,77 @@ class AutoDriveActivity : AppCompatActivity(),
         val results = FloatArray(3)
         Location.distanceBetween(lat1, lng1, lat2, lng2, results)
         return results[1]
+    }
+
+    /**
+     * 沿路径连线导航的引导点计算。
+     * 将车辆位置投影到"segStart→segEnd"连线段上，得到连线上离车辆最近的投影点 P；
+     * 再从 P 沿线段方向（指向下一个目标点）前看 [pathLookahead] 米，得到引导目标点。
+     * 这样车辆会先逼近最近目标点的连线，再沿连线驶向下一个目标点，避免偏离路径。
+     */
+    private fun pathGoalOnSegment(pos: AMapLocation, segStart: LatLonPoint, segEnd: LatLonPoint): LatLonPoint {
+        val lookahead = pathLookahead.toDouble()
+
+        val lat0 = pos.latitude
+        val lng0 = pos.longitude
+
+        // 以车辆当前位置为原点建立局部平面坐标（米），避免直接用经纬度投影产生畸变
+        val R = 6371000.0
+        val cosLat = Math.cos(Math.toRadians(lat0))
+        fun toX(lat: Double, lng: Double): Double = R * Math.toRadians(lng - lng0) * cosLat
+        fun toY(lat: Double, lng: Double): Double = R * Math.toRadians(lat - lat0)
+        fun toLat(localY: Double): Double = lat0 + Math.toDegrees(localY / R)
+        fun toLng(localX: Double): Double = lng0 + Math.toDegrees(localX / (R * cosLat))
+
+        // 线段两端点的局部坐标
+        val ax = toX(segStart.latitude, segStart.longitude)
+        val ay = toY(segStart.latitude, segStart.longitude)
+        val bx = toX(segEnd.latitude, segEnd.longitude)
+        val by = toY(segEnd.latitude, segEnd.longitude)
+
+        val dx = bx - ax
+        val dy = by - ay
+        val segLenSq = dx * dx + dy * dy
+
+        if (segLenSq < 1e-9) {
+            // 线段退化为点，直接返回终点
+            return segEnd
+        }
+
+        // 车辆位于原点 (0,0)，起点→车辆 向量即 (-ax, -ay)
+        // 投影参数 t = dot(起点→车辆, 段方向) / |段方向|^2，并夹取到 [0,1] 保证投影点在线段内
+        var t = (-ax * dx - ay * dy) / segLenSq
+        t = t.coerceIn(0.0, 1.0)
+
+        // 连线上离车辆最近的投影点 P
+        val px = ax + t * dx
+        val py = ay + t * dy
+
+        // 从 P 沿线段方向（指向下一个目标点）前看，但不超过本段长度
+        val segLen = Math.sqrt(segLenSq)
+        val goalDist = Math.min(lookahead, segLen)
+        val ux = dx / segLen
+        val uy = dy / segLen
+        val gx = px + ux * goalDist
+        val gy = py + uy * goalDist
+
+        return LatLonPoint(toLat(gy), toLng(gx))
+    }
+
+    /**
+     * 返回当前导航应逼近/前进的引导目标点：
+     * - 若有下一个目标点，返回当前段连线上的引导点（方向指向下一个目标点）；
+     * - 否则（最后一个目标点）直接返回该目标点。
+     */
+    private fun computePathGoal(): LatLonPoint? {
+        val loc = currentLocation ?: return null
+        val idx = currentTargetIndex
+        if (idx >= waypoints.size) return null
+        val target = waypoints[idx]
+        if (idx + 1 < waypoints.size) {
+            return pathGoalOnSegment(loc, target, waypoints[idx + 1])
+        }
+        return target
     }
 
     private fun calculateDestination(lat: Double, lng: Double, bearing: Float, distanceMeters: Double): LatLng {
