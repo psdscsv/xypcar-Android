@@ -3,5 +3,6 @@
     <string-array name="joystick_modes">
         <item>双摇杆（速度 + 转向分离）</item>
         <item>单摇杆（速度 + 转向合二为一）</item>
+        <item>方向按键控制</item>
     </string-array>
 </resources>

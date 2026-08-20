@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A1A2E"
+    android:padding="20dp">
+
+    <!-- 左侧垂直按钮组 -->
+    <LinearLayout
+        android:id="@+id/left_group"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerVertical="true"
+        android:layout_alignParentStart="true"
+        android:orientation="vertical"
+        android:paddingLeft="50dp"
+        android:gravity="center">
+
+        <Button
+            android:id="@+id/btn_forward"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="前进"
+            android:textSize="20sp"
+            android:backgroundTint="#2196F3"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="10dp" />
+
+        <Button
+            android:id="@+id/btn_stop"
+            android:layout_width="80dp"
+            android:layout_height="50dp"
+            android:text="停止"
+            android:textSize="20sp"
+            android:backgroundTint="#F44336"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="10dp" />
+
+        <Button
+            android:id="@+id/btn_backward"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="后退"
+            android:textSize="20sp"
+            android:backgroundTint="#2196F3"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- 右侧水平按钮组 -->
+    <LinearLayout
+        android:id="@+id/right_group"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerVertical="true"
+        android:layout_alignParentEnd="true"
+        android:orientation="horizontal"
+        android:paddingRight="50dp"
+        android:gravity="center">
+
+        <Button
+            android:id="@+id/btn_left"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="左转"
+            android:textSize="20sp"
+            android:backgroundTint="#4CAF50"
+            android:textColor="#FFFFFF"
+            android:layout_marginEnd="10dp" />
+
+        <Button
+            android:id="@+id/btn_right"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="右转"
+            android:textSize="20sp"
+            android:backgroundTint="#4CAF50"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- 数据显示，放在底部 -->
+    <TextView
+        android:id="@+id/value_display"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="40dp"
+        android:text="速度: 0.0 m/s  转向: 0 °/s"
+        android:textColor="#00FFAA"
+        android:textSize="16sp"
+        android:fontFamily="monospace"
+        android:background="#CC000000"
+        android:padding="8dp" />
+
+</RelativeLayout>

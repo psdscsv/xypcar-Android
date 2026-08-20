@@ -17,14 +17,17 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.fragment.app.Fragment
 import com.psd.xypcar.control.BLEController
+import com.psd.xypcar.control.DirectionButtonFragment
 import com.psd.xypcar.control.JoystickControlFragment
 import com.psd.xypcar.network.NetworkSource
 import com.psd.xypcar.network.UdpDeviceDiscovery
 import java.util.Locale
 
 class RemoteControlActivity : AppCompatActivity(),
-    JoystickControlFragment.OnControlListener {
+    JoystickControlFragment.OnControlListener,   // 双摇杆/单摇杆的回调
+    DirectionButtonFragment.OnControlListener {  // 方向按键的回调
 
     // ---------- 控件 ----------
     private lateinit var prefs: SharedPreferences
@@ -41,8 +44,8 @@ class RemoteControlActivity : AppCompatActivity(),
     private var videoSource: NetworkSource? = null
     private var isVideoRunning = false
 
-    // 摇杆 Fragment
-    private lateinit var joystickFragment: JoystickControlFragment
+    // 控制 Fragment（当前显示的）
+    private var currentFragment: Fragment? = null
     private var joystickMode = 0
 
     // BLE 控制
@@ -72,25 +75,29 @@ class RemoteControlActivity : AppCompatActivity(),
         settingBtn = findViewById(R.id.btn_settings)
         deviceNameInput = findViewById(R.id.device_name_input)
 
-        prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
+        prefs = getSharedPreferences("car_config", MODE_PRIVATE)
         loadConfig()
+
+        // 读取摇杆模式并加载对应的 Fragment
+        joystickMode = prefs.getInt("joystick_mode", 0)
+        loadControlFragment(joystickMode)
 
         // 初始化 BLE
         bleController = BLEController(this)
         setupBLE()
 
-        // 读取摇杆模式
-        joystickMode = prefs.getInt("joystick_mode", 0)
-        // 加载摇杆 Fragment
-        joystickFragment = JoystickControlFragment.newInstance(joystickMode)
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.joystick_container, joystickFragment)
-            .commit()
-
         // 按钮事件
         connectBtn.setOnClickListener { onConnect() }
         disconnectBtn.setOnClickListener { onDisconnect() }
-        resetBtn.setOnClickListener { onReset() }
+        resetBtn.setOnClickListener {
+            // 重置当前 Fragment 的控件
+            when (currentFragment) {
+                is JoystickControlFragment -> (currentFragment as JoystickControlFragment).resetJoysticks()
+                is DirectionButtonFragment -> (currentFragment as DirectionButtonFragment).resetControls()
+            }
+            bleController.sendControl(0f, 0f, stop = true)
+            Toast.makeText(this, "已归零", Toast.LENGTH_SHORT).show()
+        }
         settingBtn.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
@@ -113,11 +120,7 @@ class RemoteControlActivity : AppCompatActivity(),
         val newMode = prefs.getInt("joystick_mode", 0)
         if (newMode != joystickMode) {
             joystickMode = newMode
-            // 重新创建 Fragment
-            joystickFragment = JoystickControlFragment.newInstance(joystickMode)
-            supportFragmentManager.beginTransaction()
-                .replace(R.id.joystick_container, joystickFragment)
-                .commit()
+            loadControlFragment(joystickMode)
         }
         // 图传状态
         val enabled = prefs.getBoolean("video_enabled", false)
@@ -139,25 +142,46 @@ class RemoteControlActivity : AppCompatActivity(),
         handler.removeCallbacksAndMessages(null)
         stopVideoStream()
     }
-
-    // ========== 摇杆回调 ==========
-    override fun onControl(speed: Float, turn: Float) {
-        // 接收归一化值 -1~1，乘以最大参数
-        if (!isReadyToSend) return
-        val targetSpeed = speed * maxSpeed
-        val targetTurn = turn * maxTurn
-        val now = System.currentTimeMillis()
-
-        // 归零强制发送
-        if (targetSpeed == 0f && targetTurn == 0f) {
-            bleController.sendControl(0f, 0f, stop = false)
-            lastSendTime = now
-            return
+    private fun onReset() {
+        when (currentFragment) {
+            is JoystickControlFragment -> (currentFragment as JoystickControlFragment).resetJoysticks()
+            is DirectionButtonFragment -> (currentFragment as DirectionButtonFragment).resetControls()
         }
+        bleController.sendControl(0f, 0f, stop = true)
+        Toast.makeText(this, "已归零", Toast.LENGTH_SHORT).show()
+    }
+    // ========== 加载控制 Fragment ==========
+    private fun loadControlFragment(mode: Int) {
+        val fragment: Fragment = when (mode) {
+            0 -> JoystickControlFragment.newInstance(0)   // 双摇杆
+            1 -> JoystickControlFragment.newInstance(1)   // 单摇杆
+            2 -> DirectionButtonFragment()                // 方向按键
+            else -> JoystickControlFragment.newInstance(0)
+        }
+        currentFragment = fragment
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.joystick_container, fragment)
+            .commit()
+    }
 
-        if (now - lastSendTime >= sendIntervalMs) {
-            bleController.sendControl(targetSpeed, targetTurn, stop = false)
-            lastSendTime = now
+    // ========== 摇杆回调（两个接口共用此实现） ==========
+    override fun onControl(speed: Float, turn: Float) {
+        handleControl(speed, turn)
+    }
+
+    private fun handleControl(speed: Float, turn: Float) {
+        if (isReadyToSend) {
+            val targetSpeed = speed * maxSpeed
+            val targetTurn = turn * maxTurn
+            val now = System.currentTimeMillis()
+            // 归零强制发送
+            if (targetSpeed == 0f && targetTurn == 0f) {
+                bleController.sendControl(0f, 0f, stop = false)
+                lastSendTime = now
+            } else if (now - lastSendTime >= sendIntervalMs) {
+                bleController.sendControl(targetSpeed, targetTurn, stop = false)
+                lastSendTime = now
+            }
         }
     }
 
@@ -260,12 +284,6 @@ class RemoteControlActivity : AppCompatActivity(),
             )
         )
         bleController.disconnect()
-    }
-
-    private fun onReset() {
-        joystickFragment.resetJoysticks()
-        bleController.sendControl(0f, 0f, stop = true)
-        Toast.makeText(this, "已归零", Toast.LENGTH_SHORT).show()
     }
 
     // ========== 图传 ==========
