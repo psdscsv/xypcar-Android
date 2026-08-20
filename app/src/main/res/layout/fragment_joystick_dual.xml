@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center">
+
+    <LinearLayout
+        android:id="@+id/left_container"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="速度"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp" />
+
+        <com.psd.xypcar.control.JoystickView
+            android:id="@+id/left_joystick"
+            android:layout_width="200dp"
+            android:layout_height="200dp" />
+    </LinearLayout>
+
+    <!-- 中间数据显示 -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/value_display"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="速度: 0.0 m/s\n转向: 0 °/s"
+            android:textColor="#00FFAA"
+            android:textSize="16sp"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="6dp"
+            android:gravity="center" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/right_container"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="转向"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp" />
+
+        <com.psd.xypcar.control.JoystickView
+            android:id="@+id/right_joystick"
+            android:layout_width="200dp"
+            android:layout_height="200dp" />
+    </LinearLayout>
+
+</LinearLayout>

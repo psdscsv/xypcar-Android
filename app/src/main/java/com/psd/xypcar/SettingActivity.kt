@@ -7,6 +7,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.Spinner
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
@@ -38,6 +39,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var etServerPort: EditText
 
     private lateinit var switchVideoEnable: SwitchCompat
+
+    private lateinit var spinnerJoystickMode: Spinner
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +75,8 @@ class SettingsActivity : AppCompatActivity() {
         etServerPort = findViewById(R.id.et_server_port)
 
         switchVideoEnable = findViewById(R.id.switch_video_enable)
+
+        spinnerJoystickMode = findViewById(R.id.spinner_joystick_mode)
 
         loadSettings()
 
@@ -122,6 +127,8 @@ class SettingsActivity : AppCompatActivity() {
         etServerPort.setText(prefs.getString("remote_port", "9999"))
 
         switchVideoEnable.isChecked = prefs.getBoolean("video_enabled", false)
+
+        spinnerJoystickMode.setSelection(prefs.getInt("joystick_mode", 0))
     }
 
     private fun saveBluetooth() {
@@ -136,6 +143,7 @@ class SettingsActivity : AppCompatActivity() {
         try {
             editor.putFloat("max_speed", etMaxSpeed.text.toString().toFloat())
             editor.putFloat("max_turn", etMaxTurn.text.toString().toFloat())
+            editor.putInt("joystick_mode", spinnerJoystickMode.selectedItemPosition)
             editor.apply()
             Toast.makeText(this, "控制参数已保存", Toast.LENGTH_SHORT).show()
         } catch (_: NumberFormatException) {

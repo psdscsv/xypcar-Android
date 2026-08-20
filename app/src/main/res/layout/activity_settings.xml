@@ -264,7 +264,21 @@
                 android:background="@android:drawable/editbox_background"
                 android:inputType="numberDecimal"
                 android:padding="10dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="摇杆模式"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
 
+            <Spinner
+                android:id="@+id/spinner_joystick_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:entries="@array/joystick_modes"
+                android:padding="10dp" />
             <Button
                 android:id="@+id/btn_save_control"
                 android:layout_width="match_parent"

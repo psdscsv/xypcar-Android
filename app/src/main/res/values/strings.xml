@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">小车遥控端</string>
+    <string-array name="joystick_modes">
+        <item>双摇杆（速度 + 转向分离）</item>
+        <item>单摇杆（速度 + 转向合二为一）</item>
+    </string-array>
 </resources>
