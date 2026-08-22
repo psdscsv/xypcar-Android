@@ -237,7 +237,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="最大速度 (m/s)"
+                android:text="速度倍率（0-2，倍率越小，速度越慢）"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
 
@@ -327,7 +327,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="导航最大速度 (m/s)"
+                android:text="导航速度倍率（0-2，倍率越小，速度越慢）"
                 android:textColor="@color/text_primary"
                 android:textSize="16sp" />
 
