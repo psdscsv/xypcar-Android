@@ -44,6 +44,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.sign
 
 class AutoDriveActivity : AppCompatActivity(),
     AMapLocationListener,
@@ -93,11 +96,12 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var locationClient: AMapLocationClient
     private var currentLocation: AMapLocation? = null
 
-    private var isFirstLocation = true  // 用于标记是否首次定位
+    private var isFirstLocation = true
 
     // ---------- 传感器 ----------
     private lateinit var sensorManager: SensorManager
     private var deviceBearing = 0f
+    private var rollVelocity = 0f   // 横滚角速度（X轴）
 
     // ---------- 导航循环 ----------
     private val handler = Handler(Looper.getMainLooper())
@@ -113,7 +117,8 @@ class AutoDriveActivity : AppCompatActivity(),
     private var targetArrivalDistance = 10f
     private var calibrationTime = 2.0f
     private var calibrationAngle = 5.0f
-    // 沿"当前点→下一点"连线导航时的前瞻距离（米）
+    private var turnDeadZone = 2f       // 新增：转向死区角度
+    private var rollThreshold = 15f     // 新增：翻滚角速度阈值（度/秒）
     private var pathLookahead = 5f
 
     private var targetCircle: Circle? = null
@@ -156,7 +161,6 @@ class AutoDriveActivity : AppCompatActivity(),
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
         )
-        // 替换为新的全屏方式
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_autodrive)
 
@@ -224,6 +228,8 @@ class AutoDriveActivity : AppCompatActivity(),
         targetArrivalDistance = prefs.getFloat("arrival_distance", 10f)
         calibrationTime = prefs.getFloat("calibration_time", 2.0f)
         calibrationAngle = prefs.getFloat("calibration_angle", 5.0f)
+        turnDeadZone = prefs.getFloat("turn_dead_zone", 2f)
+        rollThreshold = prefs.getFloat("roll_threshold", 15f)
         val deviceName = prefs.getString("device_name", "ESP32_Car") ?: "ESP32_Car"
         remoteUsername = prefs.getString("remote_username", "") ?: ""
 
@@ -239,6 +245,13 @@ class AutoDriveActivity : AppCompatActivity(),
             } else {
                 Toast.makeText(this, "设备无方向传感器，转向将依赖GPS", Toast.LENGTH_LONG).show()
             }
+        }
+        // 注册陀螺仪用于翻滚检测
+        val gyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        if (gyro != null) {
+            sensorManager.registerListener(this, gyro, SensorManager.SENSOR_DELAY_GAME)
+        } else {
+            Toast.makeText(this, "设备无陀螺仪，翻滚检测不可用", Toast.LENGTH_LONG).show()
         }
 
         // BLE
@@ -430,7 +443,6 @@ class AutoDriveActivity : AppCompatActivity(),
         btnRemoteControl.text = "连接中..."
         btnRemoteControl.isEnabled = false
 
-        // 创建新的 RelayClient（旧对象已在 disconnect 时置 null）
         relayClient = RelayClient(
             serverHost = host,
             serverPort = port,
@@ -441,7 +453,6 @@ class AutoDriveActivity : AppCompatActivity(),
             },
             onStatusChanged = { status ->
                 runOnUiThread {
-                    // 保留回调更新，作为补充
                     if (status.contains("注册成功")) {
                         remoteEnabled = true
                         remoteConnecting = false
@@ -468,13 +479,11 @@ class AutoDriveActivity : AppCompatActivity(),
             val success = relayClient?.connect(deviceId) ?: false
             withContext(Dispatchers.Main) {
                 if (!success) {
-                    // 连接失败
                     remoteConnecting = false
                     btnRemoteControl.text = "📡 连接远程"
                     btnRemoteControl.isEnabled = true
                     Toast.makeText(this@AutoDriveActivity, "连接失败", Toast.LENGTH_SHORT).show()
                 } else {
-                    // 连接成功，确保 UI 更新（防止回调未触发）
                     if (!remoteEnabled) {
                         remoteEnabled = true
                         remoteConnecting = false
@@ -489,7 +498,6 @@ class AutoDriveActivity : AppCompatActivity(),
             }
         }
 
-        // 超时保护（15秒）
         handler.postDelayed({
             if (remoteConnecting && !remoteEnabled) {
                 remoteConnecting = false
@@ -504,7 +512,7 @@ class AutoDriveActivity : AppCompatActivity(),
 
     private fun disconnectRemote() {
         relayClient?.disconnect()
-        relayClient = null          // 释放引用，下次连接重新创建
+        relayClient = null
         remoteEnabled = false
         remoteConnecting = false
         btnRemoteControl.text = "📡 连接远程"
@@ -684,7 +692,6 @@ class AutoDriveActivity : AppCompatActivity(),
 
         val currentLatLng = LatLng(loc.latitude, loc.longitude)
 
-        // 导航中显示路径连线上应逼近的引导点；未导航时显示首个目标点
         val goal = if (isNavigating) {
             computePathGoal()
         } else {
@@ -731,7 +738,6 @@ class AutoDriveActivity : AppCompatActivity(),
             currentLocation = location
             updateAllLines()
 
-            //首次获取位置时自动移动地图并设定缩放
             if (isFirstLocation) {
                 isFirstLocation = false
                 val latLng = LatLng(location.latitude, location.longitude)
@@ -758,6 +764,10 @@ class AutoDriveActivity : AppCompatActivity(),
                     deviceBearing = Math.toDegrees(orientation[0].toDouble()).toFloat()
                     if (deviceBearing < 0) deviceBearing += 360f
                     updateHeadingLine()
+                }
+                Sensor.TYPE_GYROSCOPE -> {
+                    // 横滚角速度（X轴），单位 rad/s，转换为度/秒
+                    rollVelocity = Math.toDegrees(it.values[0].toDouble()).toFloat()
                 }
             }
         }
@@ -971,13 +981,24 @@ class AutoDriveActivity : AppCompatActivity(),
             return
         }
 
-        val target = waypoints[currentTargetIndex]
         val currentLoc = currentLocation ?: return
 
-        val distance = distanceBetween(currentLoc.latitude, currentLoc.longitude,
-            target.latitude, target.longitude)
+        // ---------- 翻滚检测 ----------
+        if (abs(rollVelocity) > rollThreshold) {
+            // 检测到翻滚，紧急停止
+            runOnUiThread {
+                tvStatus.text = "状态: 翻滚检测！紧急停止"
+                Toast.makeText(this, "检测到翻滚！已紧急停止", Toast.LENGTH_LONG).show()
+            }
+            bleController.sendControl(0f, 0f, stop = true)
+            stopNavigation()
+            return
+        }
 
-        if (distance < targetArrivalDistance) {
+        val target = waypoints[currentTargetIndex]
+
+        // 判断是否切换目标点
+        if (shouldSwitchToNextTarget(currentLoc, currentTargetIndex)) {
             currentTargetIndex++
             updateTargetDisplay()
             updateHighlightCircle()
@@ -990,18 +1011,10 @@ class AutoDriveActivity : AppCompatActivity(),
             return
         }
 
-        // 计算目标航向：
-        // - 若存在下一个目标点，则沿"当前点→下一点"的连线导航：使车辆逼近该连线，
-        //   前进方向指向下一个目标点（避免直接冲向目标点导致偏离路径/切角）
-        // - 若为最后一个目标点，则直接导航向该点
-        val targetBearing = if (currentTargetIndex + 1 < waypoints.size) {
-            val next = waypoints[currentTargetIndex + 1]
-            val goal = pathGoalOnSegment(currentLoc, target, next)
-            bearingBetween(currentLoc.latitude, currentLoc.longitude, goal.latitude, goal.longitude)
-        } else {
-            bearingBetween(currentLoc.latitude, currentLoc.longitude,
-                target.latitude, target.longitude)
-        }
+        // 计算引导目标点
+        val goal = computePathGoal() ?: target
+        val targetBearing = bearingBetween(currentLoc.latitude, currentLoc.longitude,
+            goal.latitude, goal.longitude)
 
         val currentBearing = if (deviceBearing != 0f) {
             deviceBearing
@@ -1013,22 +1026,69 @@ class AutoDriveActivity : AppCompatActivity(),
         if (turnDiff > 180) turnDiff -= 360
         if (turnDiff < -180) turnDiff += 360
 
-        val maxTurnDiff = 45f
-        val turnValue = (turnDiff / maxTurnDiff).coerceIn(-1f, 1f)
-
-        val speedFactor = if (distance > 5f) 1f else (distance / 5f).coerceIn(0.2f, 1f)
-        val speed = navMaxSpeed * speedFactor
+        // 转向控制：带死区的开关控制
+        val turnValue = if (abs(turnDiff) > turnDeadZone) sign(turnDiff) else 0f
         val turn = turnValue * navMaxTurn
+
+        // 速度：固定为 navMaxSpeed（不再自适应）
+        val speed = navMaxSpeed
 
         bleController.sendControl(speed, turn, stop = false)
 
         runOnUiThread {
             tvSpeed.text = String.format(Locale.US, "速度: %.2f m/s", speed)
             tvTurn.text = String.format(Locale.US, "转向: %.1f °/s", turn)
-            tvInfo.text = String.format(Locale.US, "距离: %.1f m  方位: %.1f°", distance, targetBearing)
+            val dist = distanceBetween(currentLoc.latitude, currentLoc.longitude,
+                target.latitude, target.longitude)
+            tvInfo.text = String.format(Locale.US, "距离: %.1f m  方位: %.1f°", dist, targetBearing)
         }
 
         updateGuideLine()
+    }
+
+    // ---------- 目标点切换判定（角平分线法） ----------
+    private fun shouldSwitchToNextTarget(loc: AMapLocation, idx: Int): Boolean {
+        if (idx >= waypoints.size - 1) {
+            // 最后一个点：使用距离判定
+            val target = waypoints[idx]
+            val dist = distanceBetween(loc.latitude, loc.longitude, target.latitude, target.longitude)
+            return dist < targetArrivalDistance
+        }
+
+        val B = waypoints[idx]
+        val C = waypoints[idx + 1]
+        val A = if (idx > 0) waypoints[idx - 1] else null
+
+        // 如果没有前一个点（起点→第一个点），用距离判定
+        if (A == null) {
+            val dist = distanceBetween(loc.latitude, loc.longitude, B.latitude, B.longitude)
+            return dist < targetArrivalDistance
+        }
+
+        // 计算向量（经纬度差值近似平面，短距离可用）
+        val baX = A.longitude - B.longitude
+        val baY = A.latitude - B.latitude
+        val bcX = C.longitude - B.longitude
+        val bcY = C.latitude - B.latitude
+        val bpX = loc.longitude - B.longitude
+        val bpY = loc.latitude - B.latitude
+
+        fun norm(x: Double, y: Double): Pair<Double, Double> {
+            val len = hypot(x, y)
+            return if (len == 0.0) Pair(0.0, 0.0) else Pair(x / len, y / len)
+        }
+        val (baNX, baNY) = norm(baX, baY)
+        val (bcNX, bcNY) = norm(bcX, bcY)
+
+        // 角平分线方向
+        val bx = baNX + bcNX
+        val by = baNY + bcNY
+        val (bNX, bNY) = norm(bx, by)
+
+        // 点积判断是否越过平分线
+        val dot = bpX * bNX + bpY * bNY
+        val distToB = hypot(bpX, bpY)
+        return dot > 0 && distToB > 2.0  // 加2米距离避免抖动
     }
 
     private fun updateTargetDisplay() {
@@ -1225,19 +1285,12 @@ class AutoDriveActivity : AppCompatActivity(),
         return results[1]
     }
 
-    /**
-     * 沿路径连线导航的引导点计算。
-     * 将车辆位置投影到"segStart→segEnd"连线段上，得到连线上离车辆最近的投影点 P；
-     * 再从 P 沿线段方向（指向下一个目标点）前看 [pathLookahead] 米，得到引导目标点。
-     * 这样车辆会先逼近最近目标点的连线，再沿连线驶向下一个目标点，避免偏离路径。
-     */
     private fun pathGoalOnSegment(pos: AMapLocation, segStart: LatLonPoint, segEnd: LatLonPoint): LatLonPoint {
         val lookahead = pathLookahead.toDouble()
 
         val lat0 = pos.latitude
         val lng0 = pos.longitude
 
-        // 以车辆当前位置为原点建立局部平面坐标（米），避免直接用经纬度投影产生畸变
         val R = 6371000.0
         val cosLat = Math.cos(Math.toRadians(lat0))
         fun toX(lat: Double, lng: Double): Double = R * Math.toRadians(lng - lng0) * cosLat
@@ -1245,7 +1298,6 @@ class AutoDriveActivity : AppCompatActivity(),
         fun toLat(localY: Double): Double = lat0 + Math.toDegrees(localY / R)
         fun toLng(localX: Double): Double = lng0 + Math.toDegrees(localX / (R * cosLat))
 
-        // 线段两端点的局部坐标
         val ax = toX(segStart.latitude, segStart.longitude)
         val ay = toY(segStart.latitude, segStart.longitude)
         val bx = toX(segEnd.latitude, segEnd.longitude)
@@ -1256,20 +1308,15 @@ class AutoDriveActivity : AppCompatActivity(),
         val segLenSq = dx * dx + dy * dy
 
         if (segLenSq < 1e-9) {
-            // 线段退化为点，直接返回终点
             return segEnd
         }
 
-        // 车辆位于原点 (0,0)，起点→车辆 向量即 (-ax, -ay)
-        // 投影参数 t = dot(起点→车辆, 段方向) / |段方向|^2，并夹取到 [0,1] 保证投影点在线段内
         var t = (-ax * dx - ay * dy) / segLenSq
         t = t.coerceIn(0.0, 1.0)
 
-        // 连线上离车辆最近的投影点 P
         val px = ax + t * dx
         val py = ay + t * dy
 
-        // 从 P 沿线段方向（指向下一个目标点）前看，但不超过本段长度
         val segLen = Math.sqrt(segLenSq)
         val goalDist = Math.min(lookahead, segLen)
         val ux = dx / segLen
@@ -1280,11 +1327,6 @@ class AutoDriveActivity : AppCompatActivity(),
         return LatLonPoint(toLat(gy), toLng(gx))
     }
 
-    /**
-     * 返回当前导航应逼近/前进的引导目标点：
-     * - 若有下一个目标点，返回当前段连线上的引导点（方向指向下一个目标点）；
-     * - 否则（最后一个目标点）直接返回该目标点。
-     */
     private fun computePathGoal(): LatLonPoint? {
         val loc = currentLocation ?: return null
         val idx = currentTargetIndex
@@ -1318,13 +1360,18 @@ class AutoDriveActivity : AppCompatActivity(),
         val newDist = prefs.getFloat("arrival_distance", 10f)
         val newTime = prefs.getFloat("calibration_time", 2.0f)
         val newAngle = prefs.getFloat("calibration_angle", 5.0f)
+        val newDeadZone = prefs.getFloat("turn_dead_zone", 2f)
+        val newRollThreshold = prefs.getFloat("roll_threshold", 15f)
         if (newSpeed != navMaxSpeed || newTurn != navMaxTurn || newDist != targetArrivalDistance ||
-            newTime != calibrationTime || newAngle != calibrationAngle) {
+            newTime != calibrationTime || newAngle != calibrationAngle ||
+            newDeadZone != turnDeadZone || newRollThreshold != rollThreshold) {
             navMaxSpeed = newSpeed
             navMaxTurn = newTurn
             targetArrivalDistance = newDist
             calibrationTime = newTime
             calibrationAngle = newAngle
+            turnDeadZone = newDeadZone
+            rollThreshold = newRollThreshold
             updateAllCirclesRadius()
         }
         if (remoteEnabled) {
@@ -1355,9 +1402,8 @@ class AutoDriveActivity : AppCompatActivity(),
         sensorManager.unregisterListener(this)
         aMap.setOnMapTouchListener(null)
     }
-    /**
-     * 保存当前路径点到内部存储文件（waypoints.json）
-     */
+
+    // ---------- 保存/加载/导出路径点 ----------
     private fun saveWaypointsToFile() {
         if (waypoints.isEmpty()) {
             Toast.makeText(this, "没有路径点可保存", Toast.LENGTH_SHORT).show()
@@ -1382,20 +1428,15 @@ class AutoDriveActivity : AppCompatActivity(),
         }
     }
 
-    /**
-     * 从用户选择的文件加载路径点（覆盖当前列表）
-     */
     private fun loadWaypointsFromFile() {
-        // 使用系统文件选择器选择 JSON 文件
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "application/json"
-            // 如果部分文件管理器不支持 application/json，可降级为 */*
-            // type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain"))
         }
         startActivityForResult(intent, REQUEST_LOAD_FILE)
     }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_LOAD_FILE && resultCode == RESULT_OK) {
@@ -1408,7 +1449,6 @@ class AutoDriveActivity : AppCompatActivity(),
                             Toast.makeText(this, "文件为空", Toast.LENGTH_SHORT).show()
                             return
                         }
-                        // 停止导航，清空当前所有点
                         if (isNavigating || isCalibrating) stopNavigation()
                         clearAllWaypoints()
 
@@ -1427,10 +1467,7 @@ class AutoDriveActivity : AppCompatActivity(),
             } ?: Toast.makeText(this, "未选择文件", Toast.LENGTH_SHORT).show()
         }
     }
-    /**
-     * 导出路径点（通过 Intent 分享）
-     * 优先使用 FileProvider 分享 JSON 文件，若未配置则降级为纯文本分享
-     */
+
     private fun exportWaypoints() {
         if (waypoints.isEmpty()) {
             Toast.makeText(this, "没有路径点可导出", Toast.LENGTH_SHORT).show()
@@ -1447,7 +1484,6 @@ class AutoDriveActivity : AppCompatActivity(),
             }
             val jsonString = jsonArray.toString()
 
-            // 尝试通过文件分享（需要 FileProvider）
             val tempFile = File(cacheDir, "waypoints_export.json")
             tempFile.writeText(jsonString)
             val uri = FileProvider.getUriForFile(
@@ -1462,9 +1498,7 @@ class AutoDriveActivity : AppCompatActivity(),
             }
             startActivity(Intent.createChooser(shareIntent, "导出路径点"))
         } catch (e: Exception) {
-            // 如果 FileProvider 未配置，降级为纯文本分享
             try {
-                // 重新获取 jsonString（因作用域问题，需重新生成）
                 val fallbackJson = JSONArray().apply {
                     waypoints.forEach { point ->
                         put(JSONObject().apply {

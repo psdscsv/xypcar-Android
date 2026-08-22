@@ -289,7 +289,8 @@
                 android:textColor="#FFFFFF" />
         </LinearLayout>
     </ScrollView>
-    <!-- 子页面：导航设置（ScrollView 包裹，支持垂直滚动） -->
+
+    <!-- 子页面：导航设置 -->
     <ScrollView
         android:id="@+id/page_navigation"
         android:layout_width="match_parent"
@@ -376,7 +377,7 @@
                 android:padding="10dp"
                 android:text="10" />
 
-            <!-- ===== 新增：陀螺仪校准参数 ===== -->
+            <!-- 陀螺仪校准参数 -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -410,7 +411,41 @@
                 android:inputType="numberDecimal"
                 android:padding="10dp"
                 android:text="5.0" />
+            <!-- 转向死区角度 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="转向死区角度 (度)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
 
+            <EditText
+                android:id="@+id/et_turn_dead_zone"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:inputType="numberDecimal"
+                android:padding="10dp"
+                android:text="2.0" />
+
+            <!-- 翻滚角速度阈值 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="翻滚角速度阈值 (°/s)"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/et_roll_threshold"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:drawable/editbox_background"
+                android:inputType="numberDecimal"
+                android:padding="10dp"
+                android:text="15.0" />
             <Button
                 android:id="@+id/btn_save_navigation"
                 android:layout_width="match_parent"

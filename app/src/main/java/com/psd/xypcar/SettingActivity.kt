@@ -41,6 +41,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var switchVideoEnable: SwitchCompat
 
     private lateinit var spinnerJoystickMode: Spinner
+    private lateinit var etTurnDeadZone: EditText
+    private lateinit var etRollThreshold: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,6 +79,9 @@ class SettingsActivity : AppCompatActivity() {
         switchVideoEnable = findViewById(R.id.switch_video_enable)
 
         spinnerJoystickMode = findViewById(R.id.spinner_joystick_mode)
+
+        etTurnDeadZone = findViewById(R.id.et_turn_dead_zone)
+        etRollThreshold = findViewById(R.id.et_roll_threshold)
 
         loadSettings()
 
@@ -129,6 +134,9 @@ class SettingsActivity : AppCompatActivity() {
         switchVideoEnable.isChecked = prefs.getBoolean("video_enabled", false)
 
         spinnerJoystickMode.setSelection(prefs.getInt("joystick_mode", 0))
+
+        etTurnDeadZone.setText(prefs.getFloat("turn_dead_zone", 2f).toString())
+        etRollThreshold.setText(prefs.getFloat("roll_threshold", 15f).toString())
     }
 
     private fun saveBluetooth() {
@@ -159,6 +167,8 @@ class SettingsActivity : AppCompatActivity() {
             editor.putFloat("arrival_distance", etArrivalDistance.text.toString().toFloat())
             editor.putFloat("calibration_time", etCalibrationTime.text.toString().toFloat())
             editor.putFloat("calibration_angle", etCalibrationAngle.text.toString().toFloat())
+            editor.putFloat("turn_dead_zone", etTurnDeadZone.text.toString().toFloatOrNull() ?: 2f)
+            editor.putFloat("roll_threshold", etRollThreshold.text.toString().toFloatOrNull() ?: 15f)
             editor.apply()
             Toast.makeText(this, "导航设置已保存", Toast.LENGTH_SHORT).show()
         } catch (_: NumberFormatException) {
