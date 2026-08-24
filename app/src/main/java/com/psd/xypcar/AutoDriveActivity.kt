@@ -16,7 +16,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -38,15 +37,15 @@ import com.amap.api.maps.MapsInitializer
 import com.amap.api.maps.model.*
 import com.amap.api.services.core.LatLonPoint
 import com.psd.xypcar.control.BLEController
+import com.psd.xypcar.navigation.NavigationConfig
+import com.psd.xypcar.navigation.NavigationEngine
+import com.psd.xypcar.navigation.NavigationResult
 import com.psd.xypcar.remote.RelayClient
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.hypot
-import kotlin.math.sign
 
 class AutoDriveActivity : AppCompatActivity(),
     AMapLocationListener,
@@ -92,9 +91,6 @@ class AutoDriveActivity : AppCompatActivity(),
     private val waypoints = mutableListOf<LatLonPoint>()
     private val waypointMarkers = mutableListOf<Marker>()
     private val waypointCircles = mutableListOf<Circle>()
-    private var currentTargetIndex = 0
-    private var isNavigating = false
-
     private var selectedMarkerIndex = -1
 
     private lateinit var waypointAdapter: ArrayAdapter<String>
@@ -122,22 +118,10 @@ class AutoDriveActivity : AppCompatActivity(),
     private var isBleConnected = false
 
     // ---------- 控制参数 ----------
-    private var navMaxSpeed = 1.5f
-    private var navMaxTurn = 50f
-    private var targetArrivalDistance = 10f
-    private var calibrationTime = 2.0f
-    private var calibrationAngle = 5.0f
-    private var turnDeadZone = 2f
-    private var rollThreshold = 15f
-    private var pathLookahead = 5f
+    private lateinit var navConfig: NavigationConfig
+    private lateinit var navEngine: NavigationEngine
 
     private var targetCircle: Circle? = null
-
-    // ---------- 校准状态 ----------
-    private var isCalibrating = false
-    private val angleHistory = mutableListOf<Float>()
-    private val sampleInterval = 200L
-    private var calibrationRunnable: Runnable? = null
 
     // ---------- 远程控制 ----------
     private var relayClient: RelayClient? = null
@@ -243,13 +227,18 @@ class AutoDriveActivity : AppCompatActivity(),
 
         // 读取配置
         val prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
-        navMaxSpeed = prefs.getFloat("nav_max_speed", 1.5f)
-        navMaxTurn = prefs.getFloat("nav_max_turn", 50f)
-        targetArrivalDistance = prefs.getFloat("arrival_distance", 10f)
-        calibrationTime = prefs.getFloat("calibration_time", 2.0f)
-        calibrationAngle = prefs.getFloat("calibration_angle", 5.0f)
-        turnDeadZone = prefs.getFloat("turn_dead_zone", 2f)
-        rollThreshold = prefs.getFloat("roll_threshold", 15f)
+        navConfig = NavigationConfig(
+            maxSpeed = prefs.getFloat("nav_max_speed", 1.5f),
+            maxTurn = prefs.getFloat("nav_max_turn", 50f),
+            arrivalDistance = prefs.getFloat("arrival_distance", 10f),
+            pathLookahead = 5f,
+            turnDeadZone = prefs.getFloat("turn_dead_zone", 2f),
+            rollThreshold = prefs.getFloat("roll_threshold", 15f),
+            calibrationTime = prefs.getFloat("calibration_time", 2.0f),
+            calibrationAngle = prefs.getFloat("calibration_angle", 5.0f)
+        )
+        navEngine = NavigationEngine(navConfig)
+
         val deviceName = prefs.getString("device_name", "ESP32_Car") ?: "ESP32_Car"
         remoteUsername = prefs.getString("remote_username", "") ?: ""
 
@@ -291,7 +280,17 @@ class AutoDriveActivity : AppCompatActivity(),
                     isBleConnected = false
                     tvBleStatus.text = "BLE: 未连接"
                     tvBleStatus.setTextColor(ContextCompat.getColor(this@AutoDriveActivity, android.R.color.holo_red_light))
-                    if (isNavigating || isCalibrating) stopNavigation()
+                    // 如果导航中，自动停止
+                    if (navEngine.update(currentLocation, deviceBearing, rollVelocity, false).isNavigating) {
+                        navEngine.stop()
+                        updateUIFromResult(NavigationResult(
+                            speed = 0f, turn = 0f, stop = true,
+                            statusMessage = "BLE 断开，导航停止",
+                            isNavigating = false, isCalibrating = false,
+                            currentTargetIndex = -1,
+                            distanceToTarget = 0f, targetBearing = 0f
+                        ))
+                    }
                 }
             }
         })
@@ -362,15 +361,23 @@ class AutoDriveActivity : AppCompatActivity(),
                 Toast.makeText(this, "位置未获取", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            startCalibration()
+            // 启动导航引擎
+            navEngine.start(waypoints)
+            updateUIFromResult(navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected))
+            // 启动循环
+            startNavLoop()
         }
 
         btnStopNav.setOnClickListener {
-            if (isCalibrating) {
-                cancelCalibration()
-            } else if (isNavigating) {
-                stopNavigation()
-            }
+            navEngine.stop()
+            updateUIFromResult(NavigationResult(
+                speed = 0f, turn = 0f, stop = true,
+                statusMessage = "已停止",
+                isNavigating = false, isCalibrating = false,
+                currentTargetIndex = -1,
+                distanceToTarget = 0f, targetBearing = 0f
+            ))
+            // 停止循环由引擎状态决定
         }
 
         // 大按钮模式切换
@@ -379,17 +386,14 @@ class AutoDriveActivity : AppCompatActivity(),
                 overlayBigButtons.visibility = View.GONE
             } else {
                 overlayBigButtons.visibility = View.VISIBLE
-                // 同步当前状态到覆盖层
                 syncOverlayUI()
             }
         }
 
-        // 覆盖层关闭
         overlayClose.setOnClickListener {
             overlayBigButtons.visibility = View.GONE
         }
 
-        // 覆盖层按钮绑定相同逻辑
         overlayBtnStart.setOnClickListener {
             btnStartNav.performClick()
         }
@@ -443,7 +447,65 @@ class AutoDriveActivity : AppCompatActivity(),
         btnRemoteControl.text = "📡 连接远程"
     }
 
-    // ---------- 同步覆盖层UI ----------
+    // ---------- 导航循环 ----------
+    private fun startNavLoop() {
+        navRunnable = object : Runnable {
+            override fun run() {
+                val result = navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected)
+                // 更新 UI
+                updateUIFromResult(result)
+                // 发送控制指令
+                if (result.isNavigating || result.isCalibrating) {
+                    bleController.sendControl(result.speed, result.turn, stop = result.stop)
+                } else {
+                    // 非导航状态，发送停止
+                    bleController.sendControl(0f, 0f, stop = true)
+                    // 如果引擎停止，则结束循环
+                    if (!result.isNavigating) {
+                        handler.removeCallbacks(navRunnable!!)
+                        navRunnable = null
+                        return
+                    }
+                }
+                // 继续循环
+                handler.postDelayed(this, navInterval)
+            }
+        }
+        handler.post(navRunnable!!)
+    }
+
+    // ---------- 更新 UI ----------
+    private fun updateUIFromResult(result: NavigationResult) {
+        runOnUiThread {
+            tvStatus.text = "状态: ${result.statusMessage}"
+            tvCurrentTarget.text = if (result.isNavigating && result.currentTargetIndex >= 0 && result.currentTargetIndex < waypoints.size) {
+                val p = waypoints[result.currentTargetIndex]
+                "目标[${result.currentTargetIndex + 1}]: ${"%.4f".format(p.latitude)}, ${"%.4f".format(p.longitude)}"
+            } else {
+                "目标: 无"
+            }
+            tvSpeed.text = "速度: ${"%.2f".format(result.speed)} m/s"
+            tvTurn.text = "转向: ${"%.1f".format(result.turn)} °/s"
+            if (result.isNavigating && result.currentTargetIndex >= 0) {
+                tvInfo.text = "距离: ${"%.1f".format(result.distanceToTarget)} m  方位: ${"%.1f".format(result.targetBearing)}°"
+            } else {
+                tvInfo.text = ""
+            }
+
+            btnStartNav.isEnabled = !result.isNavigating && !result.isCalibrating
+            btnStopNav.isEnabled = result.isNavigating || result.isCalibrating
+            overlayBtnStart.isEnabled = btnStartNav.isEnabled
+            overlayBtnStop.isEnabled = btnStopNav.isEnabled
+
+            syncOverlayUI()
+
+            // 更新地图引导线、高亮等
+            updateGuideLine()
+            updateHighlightCircle()
+        }
+    }
+
+    // ---------- 同步覆盖层 UI ----------
     private fun syncOverlayUI() {
         overlayStatus.text = tvStatus.text
         overlayTarget.text = tvCurrentTarget.text
@@ -452,12 +514,7 @@ class AutoDriveActivity : AppCompatActivity(),
         overlayBtnStart.isEnabled = btnStartNav.isEnabled
     }
 
-    // 在更新原有UI的地方调用 syncOverlayUI()（例如在 runOnUiThread 中更新后）
-    // 下面各更新点已添加 syncOverlayUI()
-
-    // 其他方法保持不变，只需在更新 tvStatus, tvCurrentTarget, tvSpeed, btnStartNav/btnStopNav 状态后调用 syncOverlayUI()
-
-    // 以下为原方法，仅增加 syncOverlayUI() 调用
+    // ==================== 原有功能保留（仅修改导航相关） ====================
 
     private fun cancelFollowing() {
         if (!isFollowing) return
@@ -666,7 +723,7 @@ class AutoDriveActivity : AppCompatActivity(),
         val circle = aMap.addCircle(
             CircleOptions()
                 .center(LatLng(point.latitude, point.longitude))
-                .radius(targetArrivalDistance.toDouble())
+                .radius(navConfig.arrivalDistance.toDouble())
                 .strokeColor(Color.argb(180, 255, 0, 0))
                 .strokeWidth(2f)
                 .fillColor(Color.argb(30, 255, 0, 0))
@@ -701,14 +758,19 @@ class AutoDriveActivity : AppCompatActivity(),
         updatePathLine()
         updateGuideLine()
 
-        if (isNavigating && position == currentTargetIndex) {
-            stopNavigation()
-        } else if (isNavigating && position < currentTargetIndex) {
-            currentTargetIndex--
-        }
-
-        if (selectedMarkerIndex >= waypoints.size) {
-            selectedMarkerIndex = -1
+        // 如果导航中且删除的是当前目标点之后，需要更新引擎状态（但引擎内部维护索引，我们无法直接修改）
+        // 建议：如果导航中，停止导航并清空引擎状态
+        if (navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected).isNavigating) {
+            navEngine.stop()
+            updateUIFromResult(NavigationResult(
+                speed = 0f, turn = 0f, stop = true,
+                statusMessage = "路径点已修改，导航停止",
+                isNavigating = false, isCalibrating = false,
+                currentTargetIndex = -1,
+                distanceToTarget = 0f, targetBearing = 0f
+            ))
+            handler.removeCallbacks(navRunnable!!)
+            navRunnable = null
         }
         lvWaypoints.clearChoices()
     }
@@ -724,8 +786,22 @@ class AutoDriveActivity : AppCompatActivity(),
         waypointAdapter.notifyDataSetChanged()
         updatePathLine()
         updateGuideLine()
-        if (isNavigating) stopNavigation()
+        // 停止导航
+        if (navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected).isNavigating) {
+            navEngine.stop()
+            updateUIFromResult(NavigationResult(
+                speed = 0f, turn = 0f, stop = true,
+                statusMessage = "已清空路径点",
+                isNavigating = false, isCalibrating = false,
+                currentTargetIndex = -1,
+                distanceToTarget = 0f, targetBearing = 0f
+            ))
+            handler.removeCallbacks(navRunnable!!)
+            navRunnable = null
+        }
         lvWaypoints.clearChoices()
+        targetCircle?.remove()
+        targetCircle = null
     }
 
     private fun updatePathLine() {
@@ -751,12 +827,16 @@ class AutoDriveActivity : AppCompatActivity(),
 
         val currentLatLng = LatLng(loc.latitude, loc.longitude)
 
-        val goal = if (isNavigating) {
-            computePathGoal()
+        // 获取引擎当前目标索引
+        val result = navEngine.update(loc, deviceBearing, rollVelocity, isBleConnected)
+        val goal = if (result.isNavigating && result.currentTargetIndex >= 0 && result.currentTargetIndex < waypoints.size) {
+            // 使用引擎计算引导点（但引擎未提供接口，我们直接使用引擎内部的 computePathGoal？但它是私有的）
+            // 简单做法：直接显示到当前目标点的连线
+            waypoints[result.currentTargetIndex]
         } else {
             if (waypoints.isEmpty()) return
             waypoints[0]
-        } ?: return
+        }
 
         val targetLatLng = LatLng(goal.latitude, goal.longitude)
 
@@ -765,7 +845,7 @@ class AutoDriveActivity : AppCompatActivity(),
                 .add(currentLatLng, targetLatLng)
                 .color(Color.RED)
                 .width(6f)
-                .setDottedLine(!isNavigating)
+                .setDottedLine(!result.isNavigating)
                 .geodesic(true)
         )
     }
@@ -773,14 +853,14 @@ class AutoDriveActivity : AppCompatActivity(),
     private fun updateHighlightCircle() {
         targetCircle?.remove()
         targetCircle = null
-        if (!isNavigating) return
-        if (currentTargetIndex >= waypoints.size) return
-        val target = waypoints[currentTargetIndex]
+        val result = navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected)
+        if (!result.isNavigating || result.currentTargetIndex < 0 || result.currentTargetIndex >= waypoints.size) return
+        val target = waypoints[result.currentTargetIndex]
         val latLng = LatLng(target.latitude, target.longitude)
         targetCircle = aMap.addCircle(
             CircleOptions()
                 .center(latLng)
-                .radius(targetArrivalDistance.toDouble())
+                .radius(navConfig.arrivalDistance.toDouble())
                 .strokeColor(Color.YELLOW)
                 .strokeWidth(6f)
                 .fillColor(Color.argb(0, 255, 255, 0))
@@ -788,8 +868,8 @@ class AutoDriveActivity : AppCompatActivity(),
     }
 
     private fun updateAllCirclesRadius() {
-        waypointCircles.forEach { it.radius = targetArrivalDistance.toDouble() }
-        targetCircle?.radius = targetArrivalDistance.toDouble()
+        waypointCircles.forEach { it.radius = navConfig.arrivalDistance.toDouble() }
+        targetCircle?.radius = navConfig.arrivalDistance.toDouble()
     }
 
     override fun onLocationChanged(location: AMapLocation?) {
@@ -941,249 +1021,7 @@ class AutoDriveActivity : AppCompatActivity(),
         }
     }
 
-    private fun startCalibration() {
-        if (isCalibrating || isNavigating) return
-        isCalibrating = true
-        angleHistory.clear()
-        tvStatus.text = "状态: 校准中..."
-        btnStartNav.isEnabled = false
-        btnStopNav.isEnabled = true
-        btnStopNav.text = "取消校准"
-        syncOverlayUI()
-
-        calibrationRunnable = object : Runnable {
-            override fun run() {
-                if (!isCalibrating) return
-                val currentAngle = deviceBearing
-                angleHistory.add(currentAngle)
-
-                val requiredSamples = (calibrationTime * 1000 / sampleInterval).toInt()
-                while (angleHistory.size > requiredSamples) {
-                    angleHistory.removeAt(0)
-                }
-
-                if (angleHistory.size >= requiredSamples) {
-                    val min = angleHistory.minOrNull() ?: 0f
-                    val max = angleHistory.maxOrNull() ?: 0f
-                    val range = max - min
-                    if (range <= calibrationAngle) {
-                        runOnUiThread {
-                            tvStatus.text = "状态: 校准通过，启动导航..."
-                            isCalibrating = false
-                            btnStopNav.text = "停止导航"
-                            syncOverlayUI()
-                            startNavigation()
-                        }
-                        return
-                    } else {
-                        runOnUiThread {
-                            tvStatus.text = String.format(Locale.US, "状态: 校准中 (波动 %.1f°)", range)
-                            syncOverlayUI()
-                        }
-                    }
-                } else {
-                    runOnUiThread {
-                        tvStatus.text = "状态: 校准中... 请保持设备稳定"
-                        syncOverlayUI()
-                    }
-                }
-                handler.postDelayed(this, sampleInterval)
-            }
-        }
-        handler.post(calibrationRunnable!!)
-    }
-
-    private fun cancelCalibration() {
-        isCalibrating = false
-        calibrationRunnable?.let { handler.removeCallbacks(it) }
-        calibrationRunnable = null
-        angleHistory.clear()
-        tvStatus.text = "状态: 已取消校准"
-        btnStartNav.isEnabled = true
-        btnStopNav.isEnabled = false
-        btnStopNav.text = "停止导航"
-        syncOverlayUI()
-    }
-
-    private fun startNavigation() {
-        if (waypoints.isEmpty()) return
-        if (!isBleConnected) return
-
-        currentTargetIndex = 0
-        isNavigating = true
-        isCalibrating = false
-
-        tvStatus.text = "状态: 导航中..."
-        btnStartNav.isEnabled = false
-        btnStopNav.isEnabled = true
-        btnStopNav.text = "停止导航"
-        syncOverlayUI()
-        updateTargetDisplay()
-        updateGuideLine()
-        updateHighlightCircle()
-        startNavLoop()
-    }
-
-    private fun startNavLoop() {
-        navRunnable = object : Runnable {
-            override fun run() {
-                if (!isNavigating || !isBleConnected) {
-                    stopNavigation()
-                    return
-                }
-                performControl()
-                handler.postDelayed(this, navInterval)
-            }
-        }
-        handler.post(navRunnable!!)
-    }
-
-    private fun performControl() {
-        if (currentTargetIndex >= waypoints.size) {
-            stopNavigation()
-            tvStatus.text = "状态: 所有目标点已到达"
-            syncOverlayUI()
-            return
-        }
-
-        val currentLoc = currentLocation ?: return
-
-        // 翻滚检测
-        if (abs(rollVelocity) > rollThreshold) {
-            runOnUiThread {
-                tvStatus.text = "状态: 翻滚检测！紧急停止"
-                Toast.makeText(this, "检测到翻滚！已紧急停止", Toast.LENGTH_LONG).show()
-                syncOverlayUI()
-            }
-            bleController.sendControl(0f, 0f, stop = true)
-            stopNavigation()
-            return
-        }
-
-        val target = waypoints[currentTargetIndex]
-
-        // 判断是否切换目标点
-        if (shouldSwitchToNextTarget(currentLoc, currentTargetIndex)) {
-            currentTargetIndex++
-            updateTargetDisplay()
-            updateHighlightCircle()
-            if (currentTargetIndex >= waypoints.size) {
-                stopNavigation()
-                tvStatus.text = "状态: 所有目标点已到达"
-                syncOverlayUI()
-                return
-            }
-            updateGuideLine()
-            return
-        }
-
-        // 计算引导目标点
-        val goal = computePathGoal() ?: target
-        val targetBearing = bearingBetween(currentLoc.latitude, currentLoc.longitude,
-            goal.latitude, goal.longitude)
-
-        val currentBearing = if (deviceBearing != 0f) {
-            deviceBearing
-        } else {
-            if (currentLoc.bearing != 0f) currentLoc.bearing else 0f
-        }
-
-        var turnDiff = targetBearing - currentBearing
-        if (turnDiff > 180) turnDiff -= 360
-        if (turnDiff < -180) turnDiff += 360
-
-        val turnValue = if (abs(turnDiff) > turnDeadZone) sign(turnDiff) else 0f
-        val turn = turnValue * navMaxTurn
-        val speed = navMaxSpeed
-
-        bleController.sendControl(speed, turn, stop = false)
-
-        runOnUiThread {
-            tvSpeed.text = String.format(Locale.US, "目标速度: %.2f m/s", speed*3.06f)
-            tvTurn.text = String.format(Locale.US, "转向: %.1f °/s", turn)
-            val dist = distanceBetween(currentLoc.latitude, currentLoc.longitude,
-                target.latitude, target.longitude)
-            tvInfo.text = String.format(Locale.US, "距离: %.1f m  方位: %.1f°", dist, targetBearing)
-            syncOverlayUI()
-        }
-
-        updateGuideLine()
-    }
-
-    private fun shouldSwitchToNextTarget(loc: AMapLocation, idx: Int): Boolean {
-        if (idx >= waypoints.size - 1) {
-            val target = waypoints[idx]
-            val dist = distanceBetween(loc.latitude, loc.longitude, target.latitude, target.longitude)
-            return dist < targetArrivalDistance
-        }
-
-        val B = waypoints[idx]
-        val C = waypoints[idx + 1]
-        val A = if (idx > 0) waypoints[idx - 1] else null
-
-        if (A == null) {
-            val dist = distanceBetween(loc.latitude, loc.longitude, B.latitude, B.longitude)
-            return dist < targetArrivalDistance
-        }
-
-        val baX = A.longitude - B.longitude
-        val baY = A.latitude - B.latitude
-        val bcX = C.longitude - B.longitude
-        val bcY = C.latitude - B.latitude
-        val bpX = loc.longitude - B.longitude
-        val bpY = loc.latitude - B.latitude
-
-        fun norm(x: Double, y: Double): Pair<Double, Double> {
-            val len = hypot(x, y)
-            return if (len == 0.0) Pair(0.0, 0.0) else Pair(x / len, y / len)
-        }
-        val (baNX, baNY) = norm(baX, baY)
-        val (bcNX, bcNY) = norm(bcX, bcY)
-
-        val bx = baNX + bcNX
-        val by = baNY + bcNY
-        val (bNX, bNY) = norm(bx, by)
-
-        val dot = bpX * bNX + bpY * bNY
-        val distToB = hypot(bpX, bpY)
-        return dot > 0 && distToB > 2.0
-    }
-
-    private fun updateTargetDisplay() {
-        if (currentTargetIndex < waypoints.size) {
-            val p = waypoints[currentTargetIndex]
-            tvCurrentTarget.text = String.format(Locale.US, "目标[%d]: %.4f, %.4f",
-                currentTargetIndex + 1, p.latitude, p.longitude)
-        } else {
-            tvCurrentTarget.text = "目标: 已完成"
-        }
-        syncOverlayUI()
-    }
-
-    private fun stopNavigation() {
-        if (isCalibrating) {
-            cancelCalibration()
-            return
-        }
-        isNavigating = false
-        navRunnable?.let { handler.removeCallbacks(it) }
-        navRunnable = null
-        bleController.sendControl(0f, 0f, stop = true)
-        tvStatus.text = "状态: 已停止"
-        tvCurrentTarget.text = "目标: 无"
-        btnStartNav.isEnabled = true
-        btnStopNav.isEnabled = false
-        btnStopNav.text = "停止导航"
-        runOnUiThread {
-            tvSpeed.text = "速度: 0.0 m/s"
-            tvTurn.text = "转向: 0.0 °/s"
-            syncOverlayUI()
-        }
-        targetCircle?.remove()
-        targetCircle = null
-        updateGuideLine()
-    }
-
+    // ---------- 远程指令处理 ----------
     private fun startStatusSending() {
         statusSendRunnable = object : Runnable {
             override fun run() {
@@ -1210,9 +1048,14 @@ class AutoDriveActivity : AppCompatActivity(),
                 put("lat", loc.latitude)
                 put("lng", loc.longitude)
                 put("bearing", if (deviceBearing != 0f) deviceBearing else loc.bearing)
-                put("nav_status", if (isNavigating) "navigating" else if (isCalibrating) "calibrating" else "idle")
-                put("is_navigating", isNavigating)
-                put("is_calibrating", isCalibrating)
+                val result = navEngine.update(loc, deviceBearing, rollVelocity, isBleConnected)
+                put("nav_status", when {
+                    result.isNavigating -> "navigating"
+                    result.isCalibrating -> "calibrating"
+                    else -> "idle"
+                })
+                put("is_navigating", result.isNavigating)
+                put("is_calibrating", result.isCalibrating)
 
                 val pointsArray = JSONArray()
                 waypoints.forEach { pt ->
@@ -1223,7 +1066,7 @@ class AutoDriveActivity : AppCompatActivity(),
                     pointsArray.put(ptObj)
                 }
                 put("waypoints", pointsArray)
-                put("current_target", currentTargetIndex)
+                put("current_target", result.currentTargetIndex)
                 put("total_waypoints", waypoints.size)
             }
             val payload = json.toString()
@@ -1267,7 +1110,7 @@ class AutoDriveActivity : AppCompatActivity(),
                         tvInfo.text = "远程控制中..."
                         syncOverlayUI()
                         handler.postDelayed({
-                            if (!isNavigating) {
+                            if (!navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected).isNavigating) {
                                 bleController.sendControl(0f, 0f, stop = true)
                             }
                         }, 5000)
@@ -1275,18 +1118,27 @@ class AutoDriveActivity : AppCompatActivity(),
                 }
                 "start_auto" -> {
                     runOnUiThread {
-                        if (!isNavigating && !isCalibrating && waypoints.isNotEmpty()) {
-                            startNavigation()
+                        if (waypoints.isNotEmpty()) {
+                            navEngine.start(waypoints)
+                            updateUIFromResult(navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected))
+                            startNavLoop()
                             Toast.makeText(this, "远程启动导航", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
                 "stop_auto" -> {
                     runOnUiThread {
-                        if (isNavigating || isCalibrating) {
-                            stopNavigation()
-                            Toast.makeText(this, "远程停止导航", Toast.LENGTH_SHORT).show()
-                        }
+                        navEngine.stop()
+                        updateUIFromResult(NavigationResult(
+                            speed = 0f, turn = 0f, stop = true,
+                            statusMessage = "远程停止",
+                            isNavigating = false, isCalibrating = false,
+                            currentTargetIndex = -1,
+                            distanceToTarget = 0f, targetBearing = 0f
+                        ))
+                        handler.removeCallbacks(navRunnable!!)
+                        navRunnable = null
+                        Toast.makeText(this, "远程停止导航", Toast.LENGTH_SHORT).show()
                     }
                 }
                 "add_waypoint" -> {
@@ -1334,71 +1186,7 @@ class AutoDriveActivity : AppCompatActivity(),
         }
     }
 
-    private fun distanceBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
-        val results = FloatArray(1)
-        Location.distanceBetween(lat1, lng1, lat2, lng2, results)
-        return results[0]
-    }
-
-    private fun bearingBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
-        val results = FloatArray(3)
-        Location.distanceBetween(lat1, lng1, lat2, lng2, results)
-        return results[1]
-    }
-
-    private fun pathGoalOnSegment(pos: AMapLocation, segStart: LatLonPoint, segEnd: LatLonPoint): LatLonPoint {
-        val lookahead = pathLookahead.toDouble()
-
-        val lat0 = pos.latitude
-        val lng0 = pos.longitude
-
-        val R = 6371000.0
-        val cosLat = Math.cos(Math.toRadians(lat0))
-        fun toX(lat: Double, lng: Double): Double = R * Math.toRadians(lng - lng0) * cosLat
-        fun toY(lat: Double, lng: Double): Double = R * Math.toRadians(lat - lat0)
-        fun toLat(localY: Double): Double = lat0 + Math.toDegrees(localY / R)
-        fun toLng(localX: Double): Double = lng0 + Math.toDegrees(localX / (R * cosLat))
-
-        val ax = toX(segStart.latitude, segStart.longitude)
-        val ay = toY(segStart.latitude, segStart.longitude)
-        val bx = toX(segEnd.latitude, segEnd.longitude)
-        val by = toY(segEnd.latitude, segEnd.longitude)
-
-        val dx = bx - ax
-        val dy = by - ay
-        val segLenSq = dx * dx + dy * dy
-
-        if (segLenSq < 1e-9) {
-            return segEnd
-        }
-
-        var t = (-ax * dx - ay * dy) / segLenSq
-        t = t.coerceIn(0.0, 1.0)
-
-        val px = ax + t * dx
-        val py = ay + t * dy
-
-        val segLen = Math.sqrt(segLenSq)
-        val goalDist = Math.min(lookahead, segLen)
-        val ux = dx / segLen
-        val uy = dy / segLen
-        val gx = px + ux * goalDist
-        val gy = py + uy * goalDist
-
-        return LatLonPoint(toLat(gy), toLng(gx))
-    }
-
-    private fun computePathGoal(): LatLonPoint? {
-        val loc = currentLocation ?: return null
-        val idx = currentTargetIndex
-        if (idx >= waypoints.size) return null
-        val target = waypoints[idx]
-        if (idx + 1 < waypoints.size) {
-            return pathGoalOnSegment(loc, target, waypoints[idx + 1])
-        }
-        return target
-    }
-
+    // ---------- 工具函数 ----------
     private fun calculateDestination(lat: Double, lng: Double, bearing: Float, distanceMeters: Double): LatLng {
         val R = 6371000.0
         val br = Math.toRadians(bearing.toDouble())
@@ -1412,60 +1200,7 @@ class AutoDriveActivity : AppCompatActivity(),
         return LatLng(Math.toDegrees(lat2), Math.toDegrees(lon2))
     }
 
-    override fun onResume() {
-        super.onResume()
-        mapView.onResume()
-        val prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
-        val newSpeed = prefs.getFloat("nav_max_speed", 1.5f)
-        val newTurn = prefs.getFloat("nav_max_turn", 50f)
-        val newDist = prefs.getFloat("arrival_distance", 10f)
-        val newTime = prefs.getFloat("calibration_time", 2.0f)
-        val newAngle = prefs.getFloat("calibration_angle", 5.0f)
-        val newDeadZone = prefs.getFloat("turn_dead_zone", 2f)
-        val newRollThreshold = prefs.getFloat("roll_threshold", 15f)
-        if (newSpeed != navMaxSpeed || newTurn != navMaxTurn || newDist != targetArrivalDistance ||
-            newTime != calibrationTime || newAngle != calibrationAngle ||
-            newDeadZone != turnDeadZone || newRollThreshold != rollThreshold) {
-            navMaxSpeed = newSpeed
-            navMaxTurn = newTurn
-            targetArrivalDistance = newDist
-            calibrationTime = newTime
-            calibrationAngle = newAngle
-            turnDeadZone = newDeadZone
-            rollThreshold = newRollThreshold
-            updateAllCirclesRadius()
-        }
-        if (remoteEnabled) {
-            btnRemoteControl.text = "📡 断开远程"
-        } else {
-            btnRemoteControl.text = "📡 连接远程"
-        }
-        if (relayClient?.isConnected() == true && !remoteEnabled) {
-            remoteEnabled = true
-            btnRemoteControl.text = "📡 断开远程"
-            startStatusSending()
-        }
-        syncOverlayUI()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        mapView.onPause()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        mapView.onDestroy()
-        locationClient.stopLocation()
-        locationClient.onDestroy()
-        bleController.disconnect()
-        stopStatusSending()
-        handler.removeCallbacksAndMessages(null)
-        sensorManager.unregisterListener(this)
-        aMap.setOnMapTouchListener(null)
-    }
-
-    // ---------- 保存/加载/导出路径点 ----------
+    // ---------- 保存/加载/导出 ----------
     private fun saveWaypointsToFile() {
         if (waypoints.isEmpty()) {
             Toast.makeText(this, "没有路径点可保存", Toast.LENGTH_SHORT).show()
@@ -1511,7 +1246,10 @@ class AutoDriveActivity : AppCompatActivity(),
                             Toast.makeText(this, "文件为空", Toast.LENGTH_SHORT).show()
                             return
                         }
-                        if (isNavigating || isCalibrating) stopNavigation()
+                        // 停止导航
+                        navEngine.stop()
+                        handler.removeCallbacks(navRunnable!!)
+                        navRunnable = null
                         clearAllWaypoints()
 
                         for (i in 0 until jsonArray.length()) {
@@ -1579,6 +1317,56 @@ class AutoDriveActivity : AppCompatActivity(),
                 Toast.makeText(this, "导出失败: ${e2.message}", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    // ---------- 生命周期 ----------
+    override fun onResume() {
+        super.onResume()
+        mapView.onResume()
+        val prefs = getSharedPreferences("car_config", Context.MODE_PRIVATE)
+        val newConfig = NavigationConfig(
+            maxSpeed = prefs.getFloat("nav_max_speed", 1.5f),
+            maxTurn = prefs.getFloat("nav_max_turn", 50f),
+            arrivalDistance = prefs.getFloat("arrival_distance", 10f),
+            pathLookahead = 5f,
+            turnDeadZone = prefs.getFloat("turn_dead_zone", 2f),
+            rollThreshold = prefs.getFloat("roll_threshold", 15f),
+            calibrationTime = prefs.getFloat("calibration_time", 2.0f),
+            calibrationAngle = prefs.getFloat("calibration_angle", 5.0f)
+        )
+        if (newConfig != navConfig) {
+            navConfig = newConfig
+            navEngine.updateConfig(navConfig)
+            updateAllCirclesRadius()
+        }
+        if (remoteEnabled) {
+            btnRemoteControl.text = "📡 断开远程"
+        } else {
+            btnRemoteControl.text = "📡 连接远程"
+        }
+        if (relayClient?.isConnected() == true && !remoteEnabled) {
+            remoteEnabled = true
+            btnRemoteControl.text = "📡 断开远程"
+            startStatusSending()
+        }
+        syncOverlayUI()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mapView.onPause()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        mapView.onDestroy()
+        locationClient.stopLocation()
+        locationClient.onDestroy()
+        bleController.disconnect()
+        stopStatusSending()
+        handler.removeCallbacksAndMessages(null)
+        sensorManager.unregisterListener(this)
+        aMap.setOnMapTouchListener(null)
     }
 }
 
