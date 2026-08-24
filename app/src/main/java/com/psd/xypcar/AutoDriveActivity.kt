@@ -71,6 +71,16 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var tvTurn: TextView
     private lateinit var btnLocate: ImageButton
     private lateinit var btnRemoteControl: Button
+    private lateinit var btnToggleBigMode: Button
+
+    // 覆盖层控件
+    private lateinit var overlayBigButtons: RelativeLayout
+    private lateinit var overlayStatus: TextView
+    private lateinit var overlayTarget: TextView
+    private lateinit var overlaySpeed: TextView
+    private lateinit var overlayBtnStart: Button
+    private lateinit var overlayBtnStop: Button
+    private lateinit var overlayClose: ImageButton
 
     // Tab 按钮
     private lateinit var tabControl: Button
@@ -101,7 +111,7 @@ class AutoDriveActivity : AppCompatActivity(),
     // ---------- 传感器 ----------
     private lateinit var sensorManager: SensorManager
     private var deviceBearing = 0f
-    private var rollVelocity = 0f   // 横滚角速度（X轴）
+    private var rollVelocity = 0f
 
     // ---------- 导航循环 ----------
     private val handler = Handler(Looper.getMainLooper())
@@ -117,8 +127,8 @@ class AutoDriveActivity : AppCompatActivity(),
     private var targetArrivalDistance = 10f
     private var calibrationTime = 2.0f
     private var calibrationAngle = 5.0f
-    private var turnDeadZone = 2f       // 新增：转向死区角度
-    private var rollThreshold = 15f     // 新增：翻滚角速度阈值（度/秒）
+    private var turnDeadZone = 2f
+    private var rollThreshold = 15f
     private var pathLookahead = 5f
 
     private var targetCircle: Circle? = null
@@ -194,6 +204,16 @@ class AutoDriveActivity : AppCompatActivity(),
         tvTurn = findViewById(R.id.tv_turn)
         btnLocate = findViewById(R.id.btn_locate)
         btnRemoteControl = findViewById(R.id.btn_remote_control)
+        btnToggleBigMode = findViewById(R.id.btn_toggle_big_mode)
+
+        // 覆盖层
+        overlayBigButtons = findViewById(R.id.overlay_big_buttons)
+        overlayStatus = findViewById(R.id.overlay_status)
+        overlayTarget = findViewById(R.id.overlay_target)
+        overlaySpeed = findViewById(R.id.overlay_speed)
+        overlayBtnStart = findViewById(R.id.overlay_btn_start)
+        overlayBtnStop = findViewById(R.id.overlay_btn_stop)
+        overlayClose = findViewById(R.id.btn_close_overlay)
 
         tabControl = findViewById(R.id.tab_control)
         tabPoints = findViewById(R.id.tab_points)
@@ -246,7 +266,6 @@ class AutoDriveActivity : AppCompatActivity(),
                 Toast.makeText(this, "设备无方向传感器，转向将依赖GPS", Toast.LENGTH_LONG).show()
             }
         }
-        // 注册陀螺仪用于翻滚检测
         val gyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         if (gyro != null) {
             sensorManager.registerListener(this, gyro, SensorManager.SENSOR_DELAY_GAME)
@@ -354,6 +373,30 @@ class AutoDriveActivity : AppCompatActivity(),
             }
         }
 
+        // 大按钮模式切换
+        btnToggleBigMode.setOnClickListener {
+            if (overlayBigButtons.visibility == View.VISIBLE) {
+                overlayBigButtons.visibility = View.GONE
+            } else {
+                overlayBigButtons.visibility = View.VISIBLE
+                // 同步当前状态到覆盖层
+                syncOverlayUI()
+            }
+        }
+
+        // 覆盖层关闭
+        overlayClose.setOnClickListener {
+            overlayBigButtons.visibility = View.GONE
+        }
+
+        // 覆盖层按钮绑定相同逻辑
+        overlayBtnStart.setOnClickListener {
+            btnStartNav.performClick()
+        }
+        overlayBtnStop.setOnClickListener {
+            btnStopNav.performClick()
+        }
+
         btnLocate.setOnClickListener {
             val loc = currentLocation
             if (loc == null) {
@@ -399,6 +442,22 @@ class AutoDriveActivity : AppCompatActivity(),
         switchTab(true)
         btnRemoteControl.text = "📡 连接远程"
     }
+
+    // ---------- 同步覆盖层UI ----------
+    private fun syncOverlayUI() {
+        overlayStatus.text = tvStatus.text
+        overlayTarget.text = tvCurrentTarget.text
+        overlaySpeed.text = tvSpeed.text
+        overlayBtnStop.isEnabled = btnStopNav.isEnabled
+        overlayBtnStart.isEnabled = btnStartNav.isEnabled
+    }
+
+    // 在更新原有UI的地方调用 syncOverlayUI()（例如在 runOnUiThread 中更新后）
+    // 下面各更新点已添加 syncOverlayUI()
+
+    // 其他方法保持不变，只需在更新 tvStatus, tvCurrentTarget, tvSpeed, btnStartNav/btnStopNav 状态后调用 syncOverlayUI()
+
+    // 以下为原方法，仅增加 syncOverlayUI() 调用
 
     private fun cancelFollowing() {
         if (!isFollowing) return
@@ -766,7 +825,6 @@ class AutoDriveActivity : AppCompatActivity(),
                     updateHeadingLine()
                 }
                 Sensor.TYPE_GYROSCOPE -> {
-                    // 横滚角速度（X轴），单位 rad/s，转换为度/秒
                     rollVelocity = Math.toDegrees(it.values[0].toDouble()).toFloat()
                 }
             }
@@ -891,6 +949,7 @@ class AutoDriveActivity : AppCompatActivity(),
         btnStartNav.isEnabled = false
         btnStopNav.isEnabled = true
         btnStopNav.text = "取消校准"
+        syncOverlayUI()
 
         calibrationRunnable = object : Runnable {
             override fun run() {
@@ -912,17 +971,20 @@ class AutoDriveActivity : AppCompatActivity(),
                             tvStatus.text = "状态: 校准通过，启动导航..."
                             isCalibrating = false
                             btnStopNav.text = "停止导航"
+                            syncOverlayUI()
                             startNavigation()
                         }
                         return
                     } else {
                         runOnUiThread {
                             tvStatus.text = String.format(Locale.US, "状态: 校准中 (波动 %.1f°)", range)
+                            syncOverlayUI()
                         }
                     }
                 } else {
                     runOnUiThread {
                         tvStatus.text = "状态: 校准中... 请保持设备稳定"
+                        syncOverlayUI()
                     }
                 }
                 handler.postDelayed(this, sampleInterval)
@@ -940,6 +1002,7 @@ class AutoDriveActivity : AppCompatActivity(),
         btnStartNav.isEnabled = true
         btnStopNav.isEnabled = false
         btnStopNav.text = "停止导航"
+        syncOverlayUI()
     }
 
     private fun startNavigation() {
@@ -954,6 +1017,7 @@ class AutoDriveActivity : AppCompatActivity(),
         btnStartNav.isEnabled = false
         btnStopNav.isEnabled = true
         btnStopNav.text = "停止导航"
+        syncOverlayUI()
         updateTargetDisplay()
         updateGuideLine()
         updateHighlightCircle()
@@ -978,17 +1042,18 @@ class AutoDriveActivity : AppCompatActivity(),
         if (currentTargetIndex >= waypoints.size) {
             stopNavigation()
             tvStatus.text = "状态: 所有目标点已到达"
+            syncOverlayUI()
             return
         }
 
         val currentLoc = currentLocation ?: return
 
-        // ---------- 翻滚检测 ----------
+        // 翻滚检测
         if (abs(rollVelocity) > rollThreshold) {
-            // 检测到翻滚，紧急停止
             runOnUiThread {
                 tvStatus.text = "状态: 翻滚检测！紧急停止"
                 Toast.makeText(this, "检测到翻滚！已紧急停止", Toast.LENGTH_LONG).show()
+                syncOverlayUI()
             }
             bleController.sendControl(0f, 0f, stop = true)
             stopNavigation()
@@ -1005,6 +1070,7 @@ class AutoDriveActivity : AppCompatActivity(),
             if (currentTargetIndex >= waypoints.size) {
                 stopNavigation()
                 tvStatus.text = "状态: 所有目标点已到达"
+                syncOverlayUI()
                 return
             }
             updateGuideLine()
@@ -1026,30 +1092,26 @@ class AutoDriveActivity : AppCompatActivity(),
         if (turnDiff > 180) turnDiff -= 360
         if (turnDiff < -180) turnDiff += 360
 
-        // 转向控制：带死区的开关控制
         val turnValue = if (abs(turnDiff) > turnDeadZone) sign(turnDiff) else 0f
         val turn = turnValue * navMaxTurn
-
-        // 速度：固定为 navMaxSpeed（不再自适应）
         val speed = navMaxSpeed
 
         bleController.sendControl(speed, turn, stop = false)
 
         runOnUiThread {
-            tvSpeed.text = String.format(Locale.US, "速度: %.2f m/s", speed)
+            tvSpeed.text = String.format(Locale.US, "目标速度: %.2f m/s", speed*3.06f)
             tvTurn.text = String.format(Locale.US, "转向: %.1f °/s", turn)
             val dist = distanceBetween(currentLoc.latitude, currentLoc.longitude,
                 target.latitude, target.longitude)
             tvInfo.text = String.format(Locale.US, "距离: %.1f m  方位: %.1f°", dist, targetBearing)
+            syncOverlayUI()
         }
 
         updateGuideLine()
     }
 
-    // ---------- 目标点切换判定（角平分线法） ----------
     private fun shouldSwitchToNextTarget(loc: AMapLocation, idx: Int): Boolean {
         if (idx >= waypoints.size - 1) {
-            // 最后一个点：使用距离判定
             val target = waypoints[idx]
             val dist = distanceBetween(loc.latitude, loc.longitude, target.latitude, target.longitude)
             return dist < targetArrivalDistance
@@ -1059,13 +1121,11 @@ class AutoDriveActivity : AppCompatActivity(),
         val C = waypoints[idx + 1]
         val A = if (idx > 0) waypoints[idx - 1] else null
 
-        // 如果没有前一个点（起点→第一个点），用距离判定
         if (A == null) {
             val dist = distanceBetween(loc.latitude, loc.longitude, B.latitude, B.longitude)
             return dist < targetArrivalDistance
         }
 
-        // 计算向量（经纬度差值近似平面，短距离可用）
         val baX = A.longitude - B.longitude
         val baY = A.latitude - B.latitude
         val bcX = C.longitude - B.longitude
@@ -1080,15 +1140,13 @@ class AutoDriveActivity : AppCompatActivity(),
         val (baNX, baNY) = norm(baX, baY)
         val (bcNX, bcNY) = norm(bcX, bcY)
 
-        // 角平分线方向
         val bx = baNX + bcNX
         val by = baNY + bcNY
         val (bNX, bNY) = norm(bx, by)
 
-        // 点积判断是否越过平分线
         val dot = bpX * bNX + bpY * bNY
         val distToB = hypot(bpX, bpY)
-        return dot > 0 && distToB > 2.0  // 加2米距离避免抖动
+        return dot > 0 && distToB > 2.0
     }
 
     private fun updateTargetDisplay() {
@@ -1099,6 +1157,7 @@ class AutoDriveActivity : AppCompatActivity(),
         } else {
             tvCurrentTarget.text = "目标: 已完成"
         }
+        syncOverlayUI()
     }
 
     private fun stopNavigation() {
@@ -1118,6 +1177,7 @@ class AutoDriveActivity : AppCompatActivity(),
         runOnUiThread {
             tvSpeed.text = "速度: 0.0 m/s"
             tvTurn.text = "转向: 0.0 °/s"
+            syncOverlayUI()
         }
         targetCircle?.remove()
         targetCircle = null
@@ -1205,6 +1265,7 @@ class AutoDriveActivity : AppCompatActivity(),
                         tvSpeed.text = String.format(Locale.US, "速度: %.2f m/s", speed)
                         tvTurn.text = String.format(Locale.US, "转向: %.1f °/s", turn)
                         tvInfo.text = "远程控制中..."
+                        syncOverlayUI()
                         handler.postDelayed({
                             if (!isNavigating) {
                                 bleController.sendControl(0f, 0f, stop = true)
@@ -1384,6 +1445,7 @@ class AutoDriveActivity : AppCompatActivity(),
             btnRemoteControl.text = "📡 断开远程"
             startStatusSending()
         }
+        syncOverlayUI()
     }
 
     override fun onPause() {
