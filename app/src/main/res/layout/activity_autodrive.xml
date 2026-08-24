@@ -347,24 +347,24 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_centerInParent="true"
-            android:orientation="vertical"
-            android:padding="32dp"
-            android:gravity="center">
+            android:orientation="horizontal">
 
             <Button
                 android:id="@+id/overlay_btn_start"
-                android:layout_width="match_parent"
-                android:layout_height="150dp"
+                android:layout_width="0dp"
+                android:layout_height="200dp"
+                android:layout_weight="1"
                 android:text="开始导航"
                 android:textSize="40sp"
                 android:backgroundTint="#4CAF50"
                 android:textColor="#FFFFFF"
-                android:layout_marginBottom="32dp" />
+                android:layout_marginEnd="16dp" />
 
             <Button
                 android:id="@+id/overlay_btn_stop"
-                android:layout_width="match_parent"
-                android:layout_height="150dp"
+                android:layout_width="0dp"
+                android:layout_height="200dp"
+                android:layout_weight="1"
                 android:text="停止导航"
                 android:textSize="40sp"
                 android:backgroundTint="#F44336"

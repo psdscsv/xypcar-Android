@@ -446,7 +446,13 @@ class AutoDriveActivity : AppCompatActivity(),
         switchTab(true)
         btnRemoteControl.text = "📡 连接远程"
     }
-
+    override fun onBackPressed() {
+        if (overlayBigButtons.visibility == View.VISIBLE) {
+            overlayBigButtons.visibility = View.GONE
+        } else {
+            super.onBackPressed()
+        }
+    }
     // ---------- 导航循环 ----------
     private fun startNavLoop() {
         navRunnable = object : Runnable {
