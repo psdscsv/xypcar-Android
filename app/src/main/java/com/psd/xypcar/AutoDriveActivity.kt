@@ -61,6 +61,7 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var btnDeleteSelected: Button
     private lateinit var btnClearPoints: Button
     private lateinit var btnStartNav: Button
+
     private lateinit var btnStopNav: Button
     private lateinit var tvStatus: TextView
     private lateinit var tvCurrentTarget: TextView
@@ -370,6 +371,8 @@ class AutoDriveActivity : AppCompatActivity(),
 
         btnStopNav.setOnClickListener {
             navEngine.stop()
+            handler.removeCallbacks(navRunnable!!)
+            navRunnable = null
             updateUIFromResult(NavigationResult(
                 speed = 0f, turn = 0f, stop = true,
                 statusMessage = "已停止",
@@ -377,7 +380,9 @@ class AutoDriveActivity : AppCompatActivity(),
                 currentTargetIndex = -1,
                 distanceToTarget = 0f, targetBearing = 0f
             ))
-            // 停止循环由引擎状态决定
+            bleController.sendControl(0f, 0f, stop = true)
+            targetCircle?.remove()
+            targetCircle = null
         }
 
         // 大按钮模式切换
@@ -446,13 +451,7 @@ class AutoDriveActivity : AppCompatActivity(),
         switchTab(true)
         btnRemoteControl.text = "📡 连接远程"
     }
-    override fun onBackPressed() {
-        if (overlayBigButtons.visibility == View.VISIBLE) {
-            overlayBigButtons.visibility = View.GONE
-        } else {
-            super.onBackPressed()
-        }
-    }
+
     // ---------- 导航循环 ----------
     private fun startNavLoop() {
         navRunnable = object : Runnable {
@@ -492,7 +491,7 @@ class AutoDriveActivity : AppCompatActivity(),
             }
             tvSpeed.text = "速度: ${"%.2f".format(result.speed)} m/s"
             tvTurn.text = "转向: ${"%.1f".format(result.turn)} °/s"
-            if (result.isNavigating && result.currentTargetIndex >= 0) {
+            if (result.isNavigating && result.currentTargetIndex >= 0 && result.currentTargetIndex < waypoints.size) {
                 tvInfo.text = "距离: ${"%.1f".format(result.distanceToTarget)} m  方位: ${"%.1f".format(result.targetBearing)}°"
             } else {
                 tvInfo.text = ""
@@ -764,10 +763,12 @@ class AutoDriveActivity : AppCompatActivity(),
         updatePathLine()
         updateGuideLine()
 
-        // 如果导航中且删除的是当前目标点之后，需要更新引擎状态（但引擎内部维护索引，我们无法直接修改）
-        // 建议：如果导航中，停止导航并清空引擎状态
+        // 如果导航中，停止导航
         if (navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected).isNavigating) {
             navEngine.stop()
+            handler.removeCallbacks(navRunnable!!)
+            navRunnable = null
+            bleController.sendControl(0f, 0f, stop = true)
             updateUIFromResult(NavigationResult(
                 speed = 0f, turn = 0f, stop = true,
                 statusMessage = "路径点已修改，导航停止",
@@ -775,8 +776,8 @@ class AutoDriveActivity : AppCompatActivity(),
                 currentTargetIndex = -1,
                 distanceToTarget = 0f, targetBearing = 0f
             ))
-            handler.removeCallbacks(navRunnable!!)
-            navRunnable = null
+            targetCircle?.remove()
+            targetCircle = null
         }
         lvWaypoints.clearChoices()
     }
@@ -792,9 +793,13 @@ class AutoDriveActivity : AppCompatActivity(),
         waypointAdapter.notifyDataSetChanged()
         updatePathLine()
         updateGuideLine()
+
         // 停止导航
         if (navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected).isNavigating) {
             navEngine.stop()
+            handler.removeCallbacks(navRunnable!!)
+            navRunnable = null
+            bleController.sendControl(0f, 0f, stop = true)
             updateUIFromResult(NavigationResult(
                 speed = 0f, turn = 0f, stop = true,
                 statusMessage = "已清空路径点",
@@ -802,12 +807,10 @@ class AutoDriveActivity : AppCompatActivity(),
                 currentTargetIndex = -1,
                 distanceToTarget = 0f, targetBearing = 0f
             ))
-            handler.removeCallbacks(navRunnable!!)
-            navRunnable = null
         }
-        lvWaypoints.clearChoices()
         targetCircle?.remove()
         targetCircle = null
+        lvWaypoints.clearChoices()
     }
 
     private fun updatePathLine() {
@@ -836,8 +839,6 @@ class AutoDriveActivity : AppCompatActivity(),
         // 获取引擎当前目标索引
         val result = navEngine.update(loc, deviceBearing, rollVelocity, isBleConnected)
         val goal = if (result.isNavigating && result.currentTargetIndex >= 0 && result.currentTargetIndex < waypoints.size) {
-            // 使用引擎计算引导点（但引擎未提供接口，我们直接使用引擎内部的 computePathGoal？但它是私有的）
-            // 简单做法：直接显示到当前目标点的连线
             waypoints[result.currentTargetIndex]
         } else {
             if (waypoints.isEmpty()) return
@@ -1135,6 +1136,9 @@ class AutoDriveActivity : AppCompatActivity(),
                 "stop_auto" -> {
                     runOnUiThread {
                         navEngine.stop()
+                        handler.removeCallbacks(navRunnable!!)
+                        navRunnable = null
+                        bleController.sendControl(0f, 0f, stop = true)
                         updateUIFromResult(NavigationResult(
                             speed = 0f, turn = 0f, stop = true,
                             statusMessage = "远程停止",
@@ -1142,8 +1146,8 @@ class AutoDriveActivity : AppCompatActivity(),
                             currentTargetIndex = -1,
                             distanceToTarget = 0f, targetBearing = 0f
                         ))
-                        handler.removeCallbacks(navRunnable!!)
-                        navRunnable = null
+                        targetCircle?.remove()
+                        targetCircle = null
                         Toast.makeText(this, "远程停止导航", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -1232,45 +1236,78 @@ class AutoDriveActivity : AppCompatActivity(),
     }
 
     private fun loadWaypointsFromFile() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/json"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain"))
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain"))
+            }
+            startActivityForResult(intent, REQUEST_LOAD_FILE)
+        } catch (e: Exception) {
+            Toast.makeText(this, "无法打开文件选择器: ${e.message}", Toast.LENGTH_SHORT).show()
+            e.printStackTrace()
         }
-        startActivityForResult(intent, REQUEST_LOAD_FILE)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_LOAD_FILE && resultCode == RESULT_OK) {
-            data?.data?.let { uri ->
-                try {
-                    contentResolver.openInputStream(uri)?.use { inputStream ->
-                        val jsonString = inputStream.bufferedReader().readText()
-                        val jsonArray = JSONArray(jsonString)
-                        if (jsonArray.length() == 0) {
-                            Toast.makeText(this, "文件为空", Toast.LENGTH_SHORT).show()
-                            return
-                        }
-                        // 停止导航
+            val uri = data?.data
+            if (uri == null) {
+                Toast.makeText(this, "未选择文件", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            try {
+                contentResolver.openInputStream(uri)?.use { inputStream ->
+                    val jsonString = inputStream.bufferedReader().readText()
+                    if (jsonString.isEmpty()) {
+                        Toast.makeText(this, "文件为空", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+
+                    val jsonArray = JSONArray(jsonString)
+                    if (jsonArray.length() == 0) {
+                        Toast.makeText(this, "文件为空", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+
+                    // 停止导航
+                    if (navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected).isNavigating) {
                         navEngine.stop()
                         handler.removeCallbacks(navRunnable!!)
                         navRunnable = null
-                        clearAllWaypoints()
+                        bleController.sendControl(0f, 0f, stop = true)
+                    }
 
-                        for (i in 0 until jsonArray.length()) {
+                    // 清空现有路径点
+                    clearAllWaypoints()
+
+                    // 加载新路径点
+                    var loadedCount = 0
+                    for (i in 0 until jsonArray.length()) {
+                        try {
                             val obj = jsonArray.getJSONObject(i)
                             val lat = obj.getDouble("lat")
                             val lng = obj.getDouble("lng")
                             addWaypoint(LatLonPoint(lat, lng))
+                            loadedCount++
+                        } catch (e: Exception) {
+                            // 跳过有问题的点
+                            continue
                         }
-                        Toast.makeText(this, "已加载 ${waypoints.size} 个路径点", Toast.LENGTH_SHORT).show()
                     }
-                } catch (e: Exception) {
-                    Toast.makeText(this, "加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                    e.printStackTrace()
+
+                    if (loadedCount > 0) {
+                        Toast.makeText(this, "已加载 $loadedCount 个路径点", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "文件中没有有效路径点", Toast.LENGTH_SHORT).show()
+                    }
                 }
-            } ?: Toast.makeText(this, "未选择文件", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                e.printStackTrace()
+            }
         }
     }
 

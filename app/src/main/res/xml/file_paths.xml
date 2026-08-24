@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 指向应用的缓存目录，用于导出临时文件 -->
+    <cache-path
+        name="cache"
+        path="/" />
+    <!-- 指向应用的文件目录，用于保存路径点 -->
+    <files-path
+        name="files"
+        path="/" />
+</paths>
