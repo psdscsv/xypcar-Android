@@ -150,6 +150,10 @@ class AutoDriveActivity : AppCompatActivity(),
     private lateinit var btnLoadWaypoints: Button
     private lateinit var btnExportWaypoints: Button
 
+    // ---------- 前瞻点 ----------
+    private var goalLine: Polyline? = null
+    private var goalMarker: Marker? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(
@@ -232,7 +236,6 @@ class AutoDriveActivity : AppCompatActivity(),
             maxSpeed = prefs.getFloat("nav_max_speed", 1.5f),
             maxTurn = prefs.getFloat("nav_max_turn", 50f),
             arrivalDistance = prefs.getFloat("arrival_distance", 10f),
-            pathLookahead = 5f,
             turnDeadZone = prefs.getFloat("turn_dead_zone", 2f),
             rollThreshold = prefs.getFloat("roll_threshold", 15f),
             calibrationTime = prefs.getFloat("calibration_time", 2.0f),
@@ -507,9 +510,40 @@ class AutoDriveActivity : AppCompatActivity(),
             // 更新地图引导线、高亮等
             updateGuideLine()
             updateHighlightCircle()
+
+            // ========== 绘制前瞻点和引导线 (Pure Pursuit) ==========
+            if (result.isNavigating && result.goalLat != 0.0 && result.goalLng != 0.0) {
+                val loc = currentLocation
+                if (loc != null) {
+                    val start = LatLng(loc.latitude, loc.longitude)
+                    val goal = LatLng(result.goalLat, result.goalLng)
+
+                    goalLine?.remove()
+                    goalLine = aMap.addPolyline(
+                        PolylineOptions()
+                            .add(start, goal)
+                            .color(Color.argb(200, 0, 200, 255)) // 亮青色
+                            .width(8f)
+                            .geodesic(true)
+                    )
+
+                    goalMarker?.remove()
+                    goalMarker = aMap.addMarker(
+                        MarkerOptions()
+                            .position(goal)
+                            .title("前瞻点")
+                            .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
+                            .anchor(0.5f, 0.5f)
+                    )
+                }
+            } else {
+                goalLine?.remove()
+                goalLine = null
+                goalMarker?.remove()
+                goalMarker = null
+            }
         }
     }
-
     // ---------- 同步覆盖层 UI ----------
     private fun syncOverlayUI() {
         overlayStatus.text = tvStatus.text
@@ -1371,7 +1405,6 @@ class AutoDriveActivity : AppCompatActivity(),
             maxSpeed = prefs.getFloat("nav_max_speed", 1.5f),
             maxTurn = prefs.getFloat("nav_max_turn", 50f),
             arrivalDistance = prefs.getFloat("arrival_distance", 10f),
-            pathLookahead = 5f,
             turnDeadZone = prefs.getFloat("turn_dead_zone", 2f),
             rollThreshold = prefs.getFloat("roll_threshold", 15f),
             calibrationTime = prefs.getFloat("calibration_time", 2.0f),
@@ -1410,6 +1443,8 @@ class AutoDriveActivity : AppCompatActivity(),
         handler.removeCallbacksAndMessages(null)
         sensorManager.unregisterListener(this)
         aMap.setOnMapTouchListener(null)
+        goalLine?.remove()
+        goalMarker?.remove()
     }
 }
 

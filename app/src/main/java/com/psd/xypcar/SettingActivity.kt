@@ -43,6 +43,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var spinnerJoystickMode: Spinner
     private lateinit var etTurnDeadZone: EditText
     private lateinit var etRollThreshold: EditText
+    private lateinit var etPathDeadZone: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,6 +84,8 @@ class SettingsActivity : AppCompatActivity() {
         etTurnDeadZone = findViewById(R.id.et_turn_dead_zone)
         etRollThreshold = findViewById(R.id.et_roll_threshold)
 
+        etPathDeadZone = findViewById(R.id.et_path_dead_zone)
+
         loadSettings()
 
         findViewById<Button>(R.id.btn_exit).setOnClickListener { finish() }
@@ -118,11 +121,11 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         etDeviceName.setText(prefs.getString("device_name", "ESP32_Car") ?: "ESP32_Car")
-        etMaxSpeed.setText(prefs.getFloat("max_speed", 2.2f).toString())
-        etMaxTurn.setText(prefs.getFloat("max_turn", 50f).toString())
+        etMaxSpeed.setText(prefs.getFloat("max_speed", 2.0f).toString())
+        etMaxTurn.setText(prefs.getFloat("max_turn", 90f).toString())
 
         etNavMaxSpeed.setText(prefs.getFloat("nav_max_speed", 1.5f).toString())
-        etNavMaxTurn.setText(prefs.getFloat("nav_max_turn", 50f).toString())
+        etNavMaxTurn.setText(prefs.getFloat("nav_max_turn", 90f).toString())
         etArrivalDistance.setText(prefs.getFloat("arrival_distance", 10f).toString())
         etCalibrationTime.setText(prefs.getFloat("calibration_time", 2.0f).toString())
         etCalibrationAngle.setText(prefs.getFloat("calibration_angle", 5.0f).toString())
@@ -137,6 +140,7 @@ class SettingsActivity : AppCompatActivity() {
 
         etTurnDeadZone.setText(prefs.getFloat("turn_dead_zone", 2f).toString())
         etRollThreshold.setText(prefs.getFloat("roll_threshold", 15f).toString())
+        etPathDeadZone.setText(prefs.getFloat("path_dead_zone", 2f).toString())
     }
 
     private fun saveBluetooth() {
@@ -169,6 +173,7 @@ class SettingsActivity : AppCompatActivity() {
             editor.putFloat("calibration_angle", etCalibrationAngle.text.toString().toFloat())
             editor.putFloat("turn_dead_zone", etTurnDeadZone.text.toString().toFloatOrNull() ?: 2f)
             editor.putFloat("roll_threshold", etRollThreshold.text.toString().toFloatOrNull() ?: 15f)
+            editor.putFloat("path_dead_zone", etPathDeadZone.text.toString().toFloatOrNull() ?: 2f)
             editor.apply()
             Toast.makeText(this, "导航设置已保存", Toast.LENGTH_SHORT).show()
         } catch (_: NumberFormatException) {

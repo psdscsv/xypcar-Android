@@ -454,6 +454,23 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:text="路径死区半径 (米)"
+                    android:textColor="#000000"
+                    android:textSize="16sp" />
+
+                <EditText
+                    android:id="@+id/et_path_dead_zone"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal"
+                    android:padding="10dp"
+                    android:textSize="16sp"
+                    android:textColor="#000000"
+                    android:background="@android:drawable/editbox_background" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:text="校准稳定时间 (秒)"
                     android:textColor="@color/text_primary"
