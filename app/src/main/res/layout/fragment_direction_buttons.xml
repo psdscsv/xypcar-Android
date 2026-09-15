@@ -2,7 +2,6 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FF000000"
     android:padding="20dp">
 
     <!-- 左侧垂直按钮组 -->
@@ -80,16 +79,14 @@
     <!-- 数据显示，放在底部 -->
     <TextView
         android:id="@+id/value_display"
-        android:layout_width="wrap_content"
+        android:layout_width="170dp"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"
         android:layout_marginBottom="40dp"
-        android:text="速度: 0.0 m/s  转向: 0 °/s"
+        android:text=""
         android:textColor="#00FFAA"
         android:textSize="16sp"
-        android:fontFamily="monospace"
-        android:background="#CC000000"
-        android:padding="8dp" />
+        android:fontFamily="monospace"/>
 
 </RelativeLayout>

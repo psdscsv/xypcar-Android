@@ -15,7 +15,6 @@ import com.psd.xypcar.R
  */
 class JoystickControlFragment : Fragment() {
 
-    // 回调接口
     interface OnControlListener {
         fun onControl(speed: Float, turn: Float)
     }
@@ -23,12 +22,10 @@ class JoystickControlFragment : Fragment() {
     private var listener: OnControlListener? = null
     private var mode = 0 // 0: 双摇杆, 1: 单摇杆
 
-    // 摇杆控件
     private lateinit var leftJoystick: JoystickView
     private lateinit var rightJoystick: JoystickView
     private lateinit var valueDisplay: TextView
 
-    // 当前值
     private var leftSpeed = 0f
     private var rightTurn = 0f
 
@@ -39,7 +36,6 @@ class JoystickControlFragment : Fragment() {
         } else if (context is OnControlListener) {
             listener = context
         }
-        // 如果不实现回调，则默认不报错
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,7 +50,6 @@ class JoystickControlFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // 根据模式选择布局
         val layoutId = if (mode == 0) {
             R.layout.fragment_joystick_dual
         } else {
@@ -70,11 +65,9 @@ class JoystickControlFragment : Fragment() {
         valueDisplay = view.findViewById(R.id.value_display)
 
         if (mode == 0) {
-            // 双摇杆模式
             rightJoystick = view.findViewById(R.id.right_joystick)
             setupDualMode()
         } else {
-            // 单摇杆模式
             setupSingleMode()
         }
     }
@@ -98,41 +91,27 @@ class JoystickControlFragment : Fragment() {
     private fun setupSingleMode() {
         leftJoystick.setOnJoystickMoveListener(object : JoystickView.OnJoystickMoveListener {
             override fun onMove(speed: Float, turn: Float) {
-                leftSpeed = -speed   // Y 轴控制速度
-                rightTurn = turn     // X 轴控制转向
+                leftSpeed = -speed
+                rightTurn = turn
                 sendControl()
             }
         })
-        // 右摇杆不存在，无需设置
     }
 
     private fun sendControl() {
-        // 调用回调
+        // 只发送控制，不再更新 value_display
         listener?.onControl(leftSpeed, rightTurn)
+    }
 
-        // 更新显示（可选）
+    // ========== 新增：由 Activity 调用，用 BLE 收到的字符串更新 value_display ==========
+    fun updateExternalDisplay(text: String) {
+        if (!::valueDisplay.isInitialized) return
         activity?.runOnUiThread {
-            valueDisplay.text = String.format(
-                java.util.Locale.US,
-                "速度: %.1f m/s\n转向: %.0f °/s",
-                leftSpeed * getMaxSpeed(),
-                rightTurn * getMaxTurn()
-            )
+            valueDisplay.text = text
         }
     }
+    // ============================================================================
 
-    // 获取最大速度和最大转向（从 SharedPreferences 读取）
-    private fun getMaxSpeed(): Float {
-        val prefs = requireContext().getSharedPreferences("car_config", Context.MODE_PRIVATE)
-        return prefs.getFloat("max_speed", 2.2f)
-    }
-
-    private fun getMaxTurn(): Float {
-        val prefs = requireContext().getSharedPreferences("car_config", Context.MODE_PRIVATE)
-        return prefs.getFloat("max_turn", 50f)
-    }
-
-    // 外部调用复位
     fun resetJoysticks() {
         leftJoystick.resetJoystick()
         if (::rightJoystick.isInitialized) {

@@ -26,8 +26,8 @@ import com.psd.xypcar.network.UdpDeviceDiscovery
 import java.util.Locale
 
 class RemoteControlActivity : AppCompatActivity(),
-    JoystickControlFragment.OnControlListener,   // 双摇杆/单摇杆的回调
-    DirectionButtonFragment.OnControlListener {  // 方向按键的回调
+    JoystickControlFragment.OnControlListener,
+    DirectionButtonFragment.OnControlListener {
 
     // ---------- 控件 ----------
     private lateinit var prefs: SharedPreferences
@@ -54,6 +54,13 @@ class RemoteControlActivity : AppCompatActivity(),
     private var isReadyToSend = false
     private var lastSendTime = 0L
     private val sendIntervalMs = 20L
+
+    // ★ 归零后暂停发送标志
+    @Volatile
+    private var sendPaused = false
+
+    // ★ 缓存最近一次车端字符串，切换 Fragment 时补上
+    private var lastCarData: String = ""
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -86,18 +93,39 @@ class RemoteControlActivity : AppCompatActivity(),
         bleController = BLEController(this)
         setupBLE()
 
+        // ★ 注册数据监听：把车端字符串显示到当前 Fragment 的 value_display 上
+        bleController.setDataListener(object : BLEController.DataListener {
+            override fun onDataReceived(text: String) {
+                // 回调已在主线程（BLEController 内部 post 过）
+                lastCarData = text
+                when (val f = currentFragment) {
+                    is JoystickControlFragment -> f.updateExternalDisplay(text)
+                    is DirectionButtonFragment -> f.updateExternalDisplay(text)
+                }
+            }
+        })
+
         // 按钮事件
         connectBtn.setOnClickListener { onConnect() }
         disconnectBtn.setOnClickListener { onDisconnect() }
+
         resetBtn.setOnClickListener {
-            // 重置当前 Fragment 的控件
+            // ① 先暂停发送（避免下面 resetXxx 触发的 onControl(0,0) 覆盖 stop）
+            sendPaused = true
+
+            // ② 复位当前 Fragment 的摇杆/按钮
             when (currentFragment) {
                 is JoystickControlFragment -> (currentFragment as JoystickControlFragment).resetJoysticks()
                 is DirectionButtonFragment -> (currentFragment as DirectionButtonFragment).resetControls()
             }
+
+            // ③ 发一次 stop=1
             bleController.sendControl(0f, 0f, stop = true)
-            Toast.makeText(this, "已归零", Toast.LENGTH_SHORT).show()
+
+            // ④ 之后的 50ms 循环不会再发包，直到用户再次操作
+            Toast.makeText(this, "已归零（暂停发送）", Toast.LENGTH_SHORT).show()
         }
+
         settingBtn.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
@@ -138,18 +166,12 @@ class RemoteControlActivity : AppCompatActivity(),
 
     override fun onDestroy() {
         super.onDestroy()
+        bleController.setDataListener(null)   // ★ 避免内存泄漏
         bleController.disconnect()
         handler.removeCallbacksAndMessages(null)
         stopVideoStream()
     }
-    private fun onReset() {
-        when (currentFragment) {
-            is JoystickControlFragment -> (currentFragment as JoystickControlFragment).resetJoysticks()
-            is DirectionButtonFragment -> (currentFragment as DirectionButtonFragment).resetControls()
-        }
-        bleController.sendControl(0f, 0f, stop = true)
-        Toast.makeText(this, "已归零", Toast.LENGTH_SHORT).show()
-    }
+
     // ========== 加载控制 Fragment ==========
     private fun loadControlFragment(mode: Int) {
         val fragment: Fragment = when (mode) {
@@ -162,26 +184,44 @@ class RemoteControlActivity : AppCompatActivity(),
         supportFragmentManager.beginTransaction()
             .replace(R.id.joystick_container, fragment)
             .commit()
+
+        // ★ 切换后把最新车端数据补上
+        if (lastCarData.isNotEmpty()) {
+            supportFragmentManager.executePendingTransactions()
+            when (fragment) {
+                is JoystickControlFragment -> fragment.updateExternalDisplay(lastCarData)
+                is DirectionButtonFragment -> fragment.updateExternalDisplay(lastCarData)
+            }
+        }
     }
 
-    // ========== 摇杆回调（两个接口共用此实现） ==========
+    // ========== 摇杆 / 按钮回调 ==========
     override fun onControl(speed: Float, turn: Float) {
         handleControl(speed, turn)
     }
 
     private fun handleControl(speed: Float, turn: Float) {
-        if (isReadyToSend) {
-            val targetSpeed = speed * maxSpeed
-            val targetTurn = turn * maxTurn
-            val now = System.currentTimeMillis()
-            // 归零强制发送
-            if (targetSpeed == 0f && targetTurn == 0f) {
-                bleController.sendControl(0f, 0f, stop = false)
-                lastSendTime = now
-            } else if (now - lastSendTime >= sendIntervalMs) {
-                bleController.sendControl(targetSpeed, targetTurn, stop = false)
-                lastSendTime = now
-            }
+        if (!isReadyToSend) return
+
+        // ★ 用户有实际输入 → 解除暂停
+        if (speed != 0f || turn != 0f) {
+            sendPaused = false
+        }
+
+        // ★ 暂停中（归零后）→ 一个包都不发
+        if (sendPaused) return
+
+        val targetSpeed = speed * maxSpeed
+        val targetTurn = turn * maxTurn
+        val now = System.currentTimeMillis()
+
+        if (targetSpeed == 0f && targetTurn == 0f) {
+            // 回中：发 stop=false（对平衡车来说回中仍要保姿态）
+            bleController.sendControl(0f, 0f, stop = false)
+            lastSendTime = now
+        } else if (now - lastSendTime >= sendIntervalMs) {
+            bleController.sendControl(targetSpeed, targetTurn, stop = false)
+            lastSendTime = now
         }
     }
 
@@ -207,6 +247,7 @@ class RemoteControlActivity : AppCompatActivity(),
             override fun onDisconnected() {
                 runOnUiThread {
                     isReadyToSend = false
+                    sendPaused = false   // ★ 断开时清除暂停标志
                     statusText.text = "❌ 未连接"
                     statusText.setTextColor(
                         ContextCompat.getColor(
@@ -276,6 +317,7 @@ class RemoteControlActivity : AppCompatActivity(),
 
     private fun onDisconnect() {
         isReadyToSend = false
+        sendPaused = false
         statusText.text = "⏳ 正在断开..."
         statusText.setTextColor(
             ContextCompat.getColor(

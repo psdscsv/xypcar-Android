@@ -36,9 +36,9 @@
 
         <TextView
             android:id="@+id/value_display"
-            android:layout_width="wrap_content"
+            android:layout_width="170dp"
             android:layout_height="wrap_content"
-            android:text="速度: 0.0 m/s\n转向: 0 °/s"
+            android:text=""
             android:textColor="#00FFAA"
             android:textSize="16sp"
             android:fontFamily="monospace"
