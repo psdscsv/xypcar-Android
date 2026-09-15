@@ -27,6 +27,9 @@ data class NavigationResult(
     val targetBearing: Float,
     val goalLat: Double = 0.0,      // 前瞻点纬度
     val goalLng: Double = 0.0,      // 前瞻点经度
+    val projectionLat: Double = 0.0,
+    val projectionLng: Double = 0.0,
+    val crossTrackError: Float = 0f,
     val needUpdateUI: Boolean = true
 )
 
@@ -45,6 +48,9 @@ class NavigationEngine(
     // ---------- Pure Pursuit 参数 ----------
     private val baseLookahead = 3.0f   // 基础前瞻距离（米）
     private val lookaheadGain = 0.5f   // 速度增益（每 m/s 增加的前瞻距离）
+    private val crossTrackGain = 1.8f  // 横向误差对转向的修正强度
+    private val headingGain = 1.15f   // 航向误差对转向的修正强度
+    private val minSpeed = 0.25f
 
     fun start(waypoints: List<LatLonPoint>) {
         if (waypoints.size < 2) {
@@ -216,16 +222,21 @@ class NavigationEngine(
         var bestSegIdx = segIdx
         var bestDist = Float.MAX_VALUE
         var bestProj = waypoints[0]
+        var bestCrossTrack = 0f
 
         // 从当前段开始向后搜索，如果投影超出终点则前进到下一段
         var loopCount = waypoints.size
         while (loopCount-- > 0 && segIdx < waypoints.size - 1) {
             val p1 = waypoints[segIdx]
             val p2 = waypoints[segIdx + 1]
-            val (t, proj, dist) = projectOnSegmentWithDistance(location, p1, p2)
+            val projection = projectOnSegmentWithDistance(location, p1, p2)
+            val t = projection.rawT
+            val proj = projection.point
+            val dist = projection.distance
             if (dist < bestDist) {
                 bestDist = dist
                 bestProj = proj
+                bestCrossTrack = projection.signedDistance
                 bestSegIdx = segIdx
             }
             // 如果投影超出终点（t>1），且不是最后一段，则尝试下一段
@@ -240,19 +251,20 @@ class NavigationEngine(
         currentSegmentIndex = bestSegIdx
         currentTargetIndex = bestSegIdx + 1
 
-        // 2. 计算动态前瞻距离
-        val speed = config.maxSpeed
+        // 2. 先用最大速度估算前瞻距离，再根据误差动态限速。
+        val initialLookahead = baseLookahead + lookaheadGain * config.maxSpeed
+        val goal = findLookaheadPoint(bestSegIdx, bestProj, initialLookahead)
+        val speed = computeSpeed(config.maxSpeed, bestCrossTrack,
+            bearingBetween(location.latitude, location.longitude, goal.latitude, goal.longitude), deviceBearing)
         val lookahead = baseLookahead + lookaheadGain * speed
-
-        // 3. 在路径上找到前瞻点（从投影点沿路径方向前进 lookahead 距离）
-        val goal = findLookaheadPoint(bestSegIdx, bestProj, lookahead)
+        val finalGoal = findLookaheadPoint(bestSegIdx, bestProj, lookahead)
 
         // 4. 计算目标方位角
         val targetBearing = bearingBetween(location.latitude, location.longitude,
-            goal.latitude, goal.longitude)
+            finalGoal.latitude, finalGoal.longitude)
 
         // 5. 转向控制（比例）
-        val turn = computeTurn(targetBearing, deviceBearing)
+        val turn = computeTurn(targetBearing, deviceBearing, bestCrossTrack)
 
         // 6. 判断是否到达终点：如果当前在最后一段且距离终点小于 arrivalDistance
         val lastPoint = waypoints.last()
@@ -268,8 +280,11 @@ class NavigationEngine(
                 distanceToTarget = distToEnd,
                 targetBearing = bearingBetween(location.latitude, location.longitude,
                     lastPoint.latitude, lastPoint.longitude),
-                goalLat = goal.latitude,
-                goalLng = goal.longitude,
+                goalLat = finalGoal.latitude,
+                goalLng = finalGoal.longitude,
+                projectionLat = bestProj.latitude,
+                projectionLng = bestProj.longitude,
+                crossTrackError = bestCrossTrack,
                 needUpdateUI = true
             )
         }
@@ -289,8 +304,11 @@ class NavigationEngine(
             distanceToTarget = distToEndpoint,
             targetBearing = bearingBetween(location.latitude, location.longitude,
                 endpoint.latitude, endpoint.longitude),
-            goalLat = goal.latitude,
-            goalLng = goal.longitude,
+            goalLat = finalGoal.latitude,
+            goalLng = finalGoal.longitude,
+            projectionLat = bestProj.latitude,
+            projectionLng = bestProj.longitude,
+            crossTrackError = bestCrossTrack,
             needUpdateUI = true
         )
     }
@@ -346,14 +364,14 @@ class NavigationEngine(
     /**
      * 转向计算（比例控制）
      */
-    private fun computeTurn(targetBearing: Float, currentBearing: Float): Float {
+    private fun computeTurn(targetBearing: Float, currentBearing: Float, crossTrackError: Float): Float {
         var diff = targetBearing - currentBearing
         if (diff > 180) diff -= 360
         if (diff < -180) diff += 360
 
         // 比例系数（可调），建议 1.2~2.0，值越大转向越激进
-        val Kp = 1.5f
-        var turn = Kp * diff
+        // 航向误差 + 有符号横向误差：车辆偏离路径时向路径中心线回正。
+        var turn = headingGain * diff + crossTrackGain * crossTrackError
         turn = turn.coerceIn(-config.maxTurn, config.maxTurn)
 
         // 转向死区
@@ -363,13 +381,31 @@ class NavigationEngine(
         return turn
     }
 
+    private fun computeSpeed(maxSpeed: Float, crossTrackError: Float,
+                             targetBearing: Float, currentBearing: Float): Float {
+        var headingError = targetBearing - currentBearing
+        if (headingError > 180f) headingError -= 360f
+        if (headingError < -180f) headingError += 360f
+        val headingFactor = (1f - abs(headingError) / 120f).coerceIn(0.25f, 1f)
+        val lateralFactor = (1f - abs(crossTrackError) / 8f).coerceIn(0.3f, 1f)
+        val floor = minOf(minSpeed, maxSpeed)
+        return (maxSpeed * headingFactor * lateralFactor).coerceIn(floor, maxSpeed)
+    }
+
     // ================== 几何工具 ==================
+
+    private data class Projection(
+        val rawT: Float,
+        val point: LatLonPoint,
+        val distance: Float,
+        val signedDistance: Float
+    )
 
     private fun projectOnSegmentWithDistance(
         location: Location,
         p1: LatLonPoint,
         p2: LatLonPoint
-    ): Triple<Float, LatLonPoint, Float> {
+    ): Projection {
         val lat0 = location.latitude
         val lng0 = location.longitude
         val R = 6371000.0
@@ -389,7 +425,7 @@ class NavigationEngine(
         val dy = by - ay
         val segLenSq = dx * dx + dy * dy
         if (segLenSq < 1e-9) {
-            return Triple(0f, p1, distanceBetween(lat0, lng0, p1.latitude, p1.longitude))
+            return Projection(0f, p1, distanceBetween(lat0, lng0, p1.latitude, p1.longitude), 0f)
         }
 
         val t = ((-ax) * dx + (-ay) * dy) / segLenSq
@@ -400,7 +436,9 @@ class NavigationEngine(
         val proj = LatLonPoint(toLat(projY), toLng(projX))
 
         val dist = hypot(projX, projY)
-        return Triple(tClamped.toFloat(), proj, dist.toFloat())
+        // 东-北坐标系中，路径左侧为正，右侧为负。
+        val signed = (dx * (-projY) - dy * (-projX)) / Math.sqrt(segLenSq)
+        return Projection(t.toFloat(), proj, dist.toFloat(), signed.toFloat())
     }
 
     private fun distanceBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {

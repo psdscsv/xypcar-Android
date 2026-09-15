@@ -153,6 +153,8 @@ class AutoDriveActivity : AppCompatActivity(),
     // ---------- 前瞻点 ----------
     private var goalLine: Polyline? = null
     private var goalMarker: Marker? = null
+    private var projectionLine: Polyline? = null
+    private var projectionMarker: Marker? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -535,12 +537,32 @@ class AutoDriveActivity : AppCompatActivity(),
                             .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
                             .anchor(0.5f, 0.5f)
                     )
+
+                    projectionLine?.remove()
+                    projectionLine = aMap.addPolyline(
+                        PolylineOptions()
+                            .add(start, LatLng(result.projectionLat, result.projectionLng))
+                            .color(Color.argb(220, 255, 215, 0))
+                            .width(7f)
+                    )
+                    projectionMarker?.remove()
+                    projectionMarker = aMap.addMarker(
+                        MarkerOptions()
+                            .position(LatLng(result.projectionLat, result.projectionLng))
+                            .title("路径投影点")
+                            .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW))
+                    )
+                    tvInfo.text = "距离: ${"%.1f".format(result.distanceToTarget)} m  偏线: ${"%.2f".format(result.crossTrackError)} m  方位: ${"%.1f".format(result.targetBearing)}°"
                 }
             } else {
                 goalLine?.remove()
                 goalLine = null
                 goalMarker?.remove()
                 goalMarker = null
+                projectionLine?.remove()
+                projectionLine = null
+                projectionMarker?.remove()
+                projectionMarker = null
             }
         }
     }
@@ -1109,6 +1131,11 @@ class AutoDriveActivity : AppCompatActivity(),
                 put("waypoints", pointsArray)
                 put("current_target", result.currentTargetIndex)
                 put("total_waypoints", waypoints.size)
+                put("goal_lat", result.goalLat)
+                put("goal_lng", result.goalLng)
+                put("projection_lat", result.projectionLat)
+                put("projection_lng", result.projectionLng)
+                put("cross_track_error_m", result.crossTrackError)
             }
             val payload = json.toString()
             CoroutineScope(Dispatchers.IO).launch {
@@ -1445,6 +1472,8 @@ class AutoDriveActivity : AppCompatActivity(),
         aMap.setOnMapTouchListener(null)
         goalLine?.remove()
         goalMarker?.remove()
+        projectionLine?.remove()
+        projectionMarker?.remove()
     }
 }
 
