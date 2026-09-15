@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -16,6 +17,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -46,7 +48,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
-
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 class AutoDriveActivity : AppCompatActivity(),
     AMapLocationListener,
     SensorEventListener {
@@ -101,9 +105,25 @@ class AutoDriveActivity : AppCompatActivity(),
 
     // ---------- 高德定位 ----------
     private lateinit var locationClient: AMapLocationClient
-    private var currentLocation: AMapLocation? = null
+    /** 原始 GPS 位置（未经偏移校正） */
+    private var rawLocation: AMapLocation? = null
+    /** 校正后的位置，所有导航/绘图都使用它 */
+    private var currentLocation: Location? = null
 
     private var isFirstLocation = true
+
+    // ---------- GPS 位置偏移校正 ----------
+    /** 南北偏移量（米），正数 = 向地图北方向移动 */
+    private var gpsOffsetNorth = 0f
+    /** 东西偏移量（米），正数 = 向地图东方向移动 */
+    private var gpsOffsetEast = 0f
+    /** 每次点击调整的步长（米） */
+    private var offsetStep = 0.5f
+
+    private var offsetPanel: LinearLayout? = null
+    private var tvOffsetInfo: TextView? = null
+    private var locationMarker: Marker? = null
+    private var blueDotIcon: BitmapDescriptor? = null
 
     // ---------- 传感器 ----------
     private lateinit var sensorManager: SensorManager
@@ -174,11 +194,8 @@ class AutoDriveActivity : AppCompatActivity(),
         aMap.setMapType(AMap.MAP_TYPE_SATELLITE)
         aMap.uiSettings.isZoomControlsEnabled = true
         aMap.uiSettings.isCompassEnabled = true
-        aMap.isMyLocationEnabled = true
-
-        val myLocationStyle = MyLocationStyle()
-        myLocationStyle.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATE)
-        aMap.myLocationStyle = myLocationStyle
+        // ★ 关闭高德自带蓝点，改用我们自己绘制的标记（支持偏移校正）
+        aMap.isMyLocationEnabled = false
 
         // 初始化 UI
         lvWaypoints = findViewById(R.id.lv_waypoints)
@@ -244,6 +261,10 @@ class AutoDriveActivity : AppCompatActivity(),
             calibrationAngle = prefs.getFloat("calibration_angle", 5.0f)
         )
         navEngine = NavigationEngine(navConfig)
+
+        // ★ 加载 GPS 偏移校正参数
+        gpsOffsetNorth = prefs.getFloat("gps_offset_north", 0f)
+        gpsOffsetEast = prefs.getFloat("gps_offset_east", 0f)
 
         val deviceName = prefs.getString("device_name", "ESP32_Car") ?: "ESP32_Car"
         remoteUsername = prefs.getString("remote_username", "") ?: ""
@@ -367,16 +388,14 @@ class AutoDriveActivity : AppCompatActivity(),
                 Toast.makeText(this, "位置未获取", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            // 启动导航引擎
             navEngine.start(waypoints)
             updateUIFromResult(navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected))
-            // 启动循环
             startNavLoop()
         }
 
         btnStopNav.setOnClickListener {
             navEngine.stop()
-            handler.removeCallbacks(navRunnable!!)
+            navRunnable?.let { handler.removeCallbacks(it) }
             navRunnable = null
             updateUIFromResult(NavigationResult(
                 speed = 0f, turn = 0f, stop = true,
@@ -390,7 +409,6 @@ class AutoDriveActivity : AppCompatActivity(),
             targetCircle = null
         }
 
-        // 大按钮模式切换
         btnToggleBigMode.setOnClickListener {
             if (overlayBigButtons.visibility == View.VISIBLE) {
                 overlayBigButtons.visibility = View.GONE
@@ -417,20 +435,13 @@ class AutoDriveActivity : AppCompatActivity(),
                 Toast.makeText(this, "正在获取位置...", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-
             isFollowing = true
-            val style = MyLocationStyle()
-            style.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATION_ROTATE)
-            aMap.myLocationStyle = style
-
+            aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(loc.latitude, loc.longitude), 18f))
             aMap.setOnMapTouchListener { event ->
                 if (event.action == MotionEvent.ACTION_DOWN) {
-                    if (isFollowing) {
-                        cancelFollowing()
-                    }
+                    if (isFollowing) cancelFollowing()
                 }
             }
-
             Toast.makeText(this, "进入跟随模式，拖动地图退出", Toast.LENGTH_SHORT).show()
         }
 
@@ -449,6 +460,9 @@ class AutoDriveActivity : AppCompatActivity(),
             exportWaypoints()
         }
 
+        // ★ 创建 GPS 偏移校正浮动面板
+        setupOffsetPanel()
+
         handler.postDelayed({
             connectBle()
         }, 500)
@@ -457,27 +471,322 @@ class AutoDriveActivity : AppCompatActivity(),
         btnRemoteControl.text = "📡 连接远程"
     }
 
+    // =====================================================================
+    // ==================== GPS 位置偏移校正相关方法 =========================
+    // =====================================================================
+
+    /**
+     * 动态创建偏移校正面板（不依赖 XML）。
+     * - 屏幕左侧中部有一个"位置校正"按钮，点击展开/收起面板。
+     * - 面板包含：南北/东西的 +/- 按钮、步长选择、重置、关闭。
+     */
+    private fun setupOffsetPanel() {
+        val content = findViewById<ViewGroup>(android.R.id.content) ?: return
+
+        // 切换按钮
+        val toggleBtn = Button(this).apply {
+            text = "位置校正"
+            textSize = 12f
+            setBackgroundColor(Color.argb(200, 40, 40, 40))
+            setTextColor(Color.WHITE)
+            setPadding(20, 10, 20, 10)
+            setOnClickListener {
+                val panel = offsetPanel ?: return@setOnClickListener
+                panel.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                if (panel.visibility == View.VISIBLE) updateOffsetDisplay()
+            }
+        }
+        val toggleParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            leftMargin = 20
+        }
+        content.addView(toggleBtn, toggleParams)
+
+        // 面板主体
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.argb(235, 10, 10, 10))
+            setPadding(40, 30, 40, 30)
+            visibility = View.GONE
+        }
+
+        val title = TextView(this).apply {
+            text = "GPS 位置校正"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, 15)
+        }
+        panel.addView(title)
+
+        tvOffsetInfo = TextView(this).apply {
+            setTextColor(Color.YELLOW)
+            textSize = 13f
+            setPadding(0, 0, 0, 15)
+            setLineSpacing(6f, 1f)
+        }
+        panel.addView(tvOffsetInfo)
+
+        // 南北行：向左偏移（西）= North 减小，向右偏移（东）= North 增大？错——North/South 分别是 -/+
+        panel.addView(createAdjustRow(
+            label = "南北 (北+ 南-)",
+            minusText = "南 ↓",
+            plusText = "北 ↑",
+            onMinus = { adjustOffset(-offsetStep, 0f) },
+            onPlus  = { adjustOffset(+offsetStep, 0f) }
+        ))
+        panel.addView(createAdjustRow(
+            label = "东西 (东+ 西-)",
+            minusText = "西 ←",
+            plusText = "东 →",
+            onMinus = { adjustOffset(0f, -offsetStep) },
+            onPlus  = { adjustOffset(0f, +offsetStep) }
+        ))
+
+        // 步长选择
+        val stepRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 12, 0, 0)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        stepRow.addView(TextView(this).apply {
+            text = "步长:"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            setPadding(0, 0, 10, 0)
+        })
+        for (s in listOf(0.1f, 0.5f, 1f, 2f, 5f)) {
+            val btn = Button(this).apply {
+                text = if (s < 1f) "${(s * 100).toInt()}cm" else "${s.toInt()}m"
+                textSize = 11f
+                setPadding(15, 5, 15, 5)
+                setOnClickListener {
+                    offsetStep = s
+                    updateOffsetDisplay()
+                }
+            }
+            stepRow.addView(btn)
+        }
+        panel.addView(stepRow)
+
+        // 操作按钮
+        val actionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 15, 0, 0)
+            gravity = Gravity.CENTER
+        }
+        actionRow.addView(Button(this).apply {
+            text = "重置"
+            setOnClickListener {
+                gpsOffsetNorth = 0f
+                gpsOffsetEast = 0f
+                applyOffsetToCurrentLocation()
+                updateOffsetDisplay()
+                saveOffsetToPrefs()
+                Toast.makeText(this@AutoDriveActivity, "已重置偏移", Toast.LENGTH_SHORT).show()
+            }
+        })
+        actionRow.addView(Button(this).apply {
+            text = "关闭"
+            setOnClickListener {
+                offsetPanel?.visibility = View.GONE
+            }
+        })
+        panel.addView(actionRow)
+
+        offsetPanel = panel
+        val panelParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+        content.addView(panel, panelParams)
+    }
+
+    private fun createAdjustRow(
+        label: String,
+        minusText: String,
+        plusText: String,
+        onMinus: () -> Unit,
+        onPlus: () -> Unit
+    ): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 6, 0, 6)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        row.addView(TextView(this).apply {
+            text = label
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            width = 260
+        })
+        row.addView(Button(this).apply {
+            text = minusText
+            textSize = 12f
+            setOnClickListener { onMinus() }
+        })
+        row.addView(Button(this).apply {
+            text = plusText
+            textSize = 12f
+            setOnClickListener { onPlus() }
+        })
+        return row
+    }
+
+    /** 调整偏移量并立即生效 */
+    private fun adjustOffset(dNorth: Float, dEast: Float) {
+        gpsOffsetNorth += dNorth
+        gpsOffsetEast += dEast
+        applyOffsetToCurrentLocation()
+        updateOffsetDisplay()
+        saveOffsetToPrefs()
+    }
+
+    /** 用当前的偏移参数重新计算 currentLocation 并刷新地图 */
+    private fun applyOffsetToCurrentLocation() {
+        val raw = rawLocation ?: return
+        currentLocation = applyOffset(raw)
+        updateLocationMarker()
+        updateAllLines()
+    }
+
+    /**
+     * 对原始 GPS 坐标应用偏移。
+     * 偏移量以米为单位，按当前纬度换算成经纬度增量。
+     */
+    private fun applyOffset(loc: Location): Location {
+        // 1) 用 getter 取值（会正确派发到 AMapLocation 的重写实现）
+        val lat = loc.latitude
+        val lng = loc.longitude
+
+        // 2) 用一个中性的 provider 名创建新对象，避免触发字段遮蔽
+        val out = Location("gps_corrected").apply {
+            latitude = lat
+            longitude = lng
+            accuracy = loc.accuracy
+            bearing = loc.bearing
+            speed = loc.speed
+            time = loc.time
+            // 部分 API 版本需要下面这个，也可以用 Build.VERSION 判断后再设
+            @Suppress("NewApi")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+                elapsedRealtimeNanos = loc.elapsedRealtimeNanos
+            }
+        }
+
+        if (gpsOffsetNorth == 0f && gpsOffsetEast == 0f) return out
+
+        // 3) 叠加偏移
+        val R = 6371000.0
+        val dLatDeg = Math.toDegrees(gpsOffsetNorth.toDouble() / R)
+        val cosLat = Math.cos(Math.toRadians(lat))
+        val dLngDeg = if (Math.abs(cosLat) < 1e-6) 0.0
+        else Math.toDegrees(gpsOffsetEast.toDouble() / (R * cosLat))
+
+        out.latitude = lat + dLatDeg
+        out.longitude = lng + dLngDeg
+        return out
+    }
+
+    private fun updateOffsetDisplay() {
+        tvOffsetInfo?.text = String.format(
+            Locale.US,
+            "南北: %+.2f m\n东西: %+.2f m\n步长: %.2f m",
+            gpsOffsetNorth, gpsOffsetEast, offsetStep
+        )
+    }
+
+    private fun saveOffsetToPrefs() {
+        getSharedPreferences("car_config", Context.MODE_PRIVATE)
+            .edit()
+            .putFloat("gps_offset_north", gpsOffsetNorth)
+            .putFloat("gps_offset_east", gpsOffsetEast)
+            .apply()
+    }
+
+    /** 更新自定义位置标记（代替高德蓝点） */
+    /** 更新自定义位置标记（用蓝色圆点代替高德蓝点） */
+    private fun updateLocationMarker() {
+        val loc = currentLocation ?: return
+        val pos = LatLng(loc.latitude, loc.longitude)
+
+        if (blueDotIcon == null) {
+            blueDotIcon = createBlueDotIcon()
+        }
+
+        if (locationMarker == null) {
+            locationMarker = aMap.addMarker(
+                MarkerOptions()
+                    .position(pos)
+                    .icon(blueDotIcon)
+                    .anchor(0.5f, 0.5f)
+                    .zIndex(100f)            // 保证浮在其他标记之上
+                    .title("我的位置")
+            )
+        } else {
+            locationMarker?.position = pos
+        }
+    }
+
+    /**
+     * 程序化绘制一个蓝色圆点图标（带白色描边和外层光晕），
+     * 效果类似高德的默认蓝点。返回 BitmapDescriptor 供 Marker 使用。
+     */
+    private fun createBlueDotIcon(): BitmapDescriptor {
+        // 以 dp 为单位，避免不同密度设备大小不一致
+        val density = resources.displayMetrics.density
+        val sizeDp = 22f
+        val sizePx = (sizeDp * density).toInt().coerceAtLeast(16)
+
+        val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val cx = sizePx / 2f
+        val cy = sizePx / 2f
+
+        // ① 外层半透明光晕
+        val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#332196F3")  // 20% 透明度的蓝色
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(cx, cy, sizePx / 2f, haloPaint)
+
+        // ② 白色描边层
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(cx, cy, sizePx / 2f * 0.55f, borderPaint)
+
+        // ③ 蓝色实心圆
+        val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#2196F3")
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(cx, cy, sizePx / 2f * 0.42f, dotPaint)
+
+        return BitmapDescriptorFactory.fromBitmap(bmp)
+    }
     // ---------- 导航循环 ----------
     private fun startNavLoop() {
         navRunnable = object : Runnable {
             override fun run() {
                 val result = navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected)
-                // 更新 UI
                 updateUIFromResult(result)
-                // 发送控制指令
                 if (result.isNavigating || result.isCalibrating) {
                     bleController.sendControl(result.speed, result.turn, stop = result.stop)
                 } else {
-                    // 非导航状态，发送停止
                     bleController.sendControl(0f, 0f, stop = true)
-                    // 如果引擎停止，则结束循环
                     if (!result.isNavigating) {
-                        handler.removeCallbacks(navRunnable!!)
+                        navRunnable?.let { handler.removeCallbacks(it) }
                         navRunnable = null
                         return
                     }
                 }
-                // 继续循环
                 handler.postDelayed(this, navInterval)
             }
         }
@@ -509,11 +818,10 @@ class AutoDriveActivity : AppCompatActivity(),
 
             syncOverlayUI()
 
-            // 更新地图引导线、高亮等
             updateGuideLine()
             updateHighlightCircle()
 
-            // ========== 绘制前瞻点和引导线 (Pure Pursuit) ==========
+            // 绘制前瞻点 / 投影点
             if (result.isNavigating && result.goalLat != 0.0 && result.goalLng != 0.0) {
                 val loc = currentLocation
                 if (loc != null) {
@@ -524,7 +832,7 @@ class AutoDriveActivity : AppCompatActivity(),
                     goalLine = aMap.addPolyline(
                         PolylineOptions()
                             .add(start, goal)
-                            .color(Color.argb(200, 0, 200, 255)) // 亮青色
+                            .color(Color.argb(200, 0, 200, 255))
                             .width(8f)
                             .geodesic(true)
                     )
@@ -566,7 +874,7 @@ class AutoDriveActivity : AppCompatActivity(),
             }
         }
     }
-    // ---------- 同步覆盖层 UI ----------
+
     private fun syncOverlayUI() {
         overlayStatus.text = tvStatus.text
         overlayTarget.text = tvCurrentTarget.text
@@ -575,15 +883,12 @@ class AutoDriveActivity : AppCompatActivity(),
         overlayBtnStart.isEnabled = btnStartNav.isEnabled
     }
 
-    // ==================== 原有功能保留（仅修改导航相关） ====================
+    // ==================== 原有功能 ====================
 
     private fun cancelFollowing() {
         if (!isFollowing) return
         isFollowing = false
         aMap.setOnMapTouchListener(null)
-        val style = MyLocationStyle()
-        style.myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATE)
-        aMap.myLocationStyle = style
         Toast.makeText(this, "已退出跟随模式", Toast.LENGTH_SHORT).show()
     }
 
@@ -819,10 +1124,9 @@ class AutoDriveActivity : AppCompatActivity(),
         updatePathLine()
         updateGuideLine()
 
-        // 如果导航中，停止导航
         if (navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected).isNavigating) {
             navEngine.stop()
-            handler.removeCallbacks(navRunnable!!)
+            navRunnable?.let { handler.removeCallbacks(it) }
             navRunnable = null
             bleController.sendControl(0f, 0f, stop = true)
             updateUIFromResult(NavigationResult(
@@ -850,10 +1154,9 @@ class AutoDriveActivity : AppCompatActivity(),
         updatePathLine()
         updateGuideLine()
 
-        // 停止导航
         if (navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected).isNavigating) {
             navEngine.stop()
-            handler.removeCallbacks(navRunnable!!)
+            navRunnable?.let { handler.removeCallbacks(it) }
             navRunnable = null
             bleController.sendControl(0f, 0f, stop = true)
             updateUIFromResult(NavigationResult(
@@ -892,7 +1195,6 @@ class AutoDriveActivity : AppCompatActivity(),
 
         val currentLatLng = LatLng(loc.latitude, loc.longitude)
 
-        // 获取引擎当前目标索引
         val result = navEngine.update(loc, deviceBearing, rollVelocity, isBleConnected)
         val goal = if (result.isNavigating && result.currentTargetIndex >= 0 && result.currentTargetIndex < waypoints.size) {
             waypoints[result.currentTargetIndex]
@@ -935,17 +1237,30 @@ class AutoDriveActivity : AppCompatActivity(),
         targetCircle?.radius = navConfig.arrivalDistance.toDouble()
     }
 
+    // =====================================================================
+    // ★ 定位回调：使用原始位置 -> 应用偏移 -> 存到 currentLocation
+    // =====================================================================
     override fun onLocationChanged(location: AMapLocation?) {
         if (location != null && location.errorCode == 0) {
-            currentLocation = location
+            rawLocation = location
+            currentLocation = applyOffset(location)
+            updateLocationMarker()
             updateAllLines()
+
+            if (isFollowing) {
+                currentLocation?.let { loc ->
+                    aMap.moveCamera(CameraUpdateFactory.newLatLng(LatLng(loc.latitude, loc.longitude)))
+                }
+            }
 
             if (isFirstLocation) {
                 isFirstLocation = false
-                val latLng = LatLng(location.latitude, location.longitude)
-                handler.postDelayed({
-                    aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
-                }, 100)
+                currentLocation?.let { loc ->
+                    val latLng = LatLng(loc.latitude, loc.longitude)
+                    handler.postDelayed({
+                        aMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
+                    }, 100)
+                }
             }
         }
     }
@@ -1197,7 +1512,7 @@ class AutoDriveActivity : AppCompatActivity(),
                 "stop_auto" -> {
                     runOnUiThread {
                         navEngine.stop()
-                        handler.removeCallbacks(navRunnable!!)
+                        navRunnable?.let { handler.removeCallbacks(it) }
                         navRunnable = null
                         bleController.sendControl(0f, 0f, stop = true)
                         updateUIFromResult(NavigationResult(
@@ -1333,18 +1648,15 @@ class AutoDriveActivity : AppCompatActivity(),
                         return
                     }
 
-                    // 停止导航
                     if (navEngine.update(currentLocation, deviceBearing, rollVelocity, isBleConnected).isNavigating) {
                         navEngine.stop()
-                        handler.removeCallbacks(navRunnable!!)
+                        navRunnable?.let { handler.removeCallbacks(it) }
                         navRunnable = null
                         bleController.sendControl(0f, 0f, stop = true)
                     }
 
-                    // 清空现有路径点
                     clearAllWaypoints()
 
-                    // 加载新路径点
                     var loadedCount = 0
                     for (i in 0 until jsonArray.length()) {
                         try {
@@ -1354,7 +1666,6 @@ class AutoDriveActivity : AppCompatActivity(),
                             addWaypoint(LatLonPoint(lat, lng))
                             loadedCount++
                         } catch (e: Exception) {
-                            // 跳过有问题的点
                             continue
                         }
                     }
@@ -1442,6 +1753,17 @@ class AutoDriveActivity : AppCompatActivity(),
             navEngine.updateConfig(navConfig)
             updateAllCirclesRadius()
         }
+
+        // ★ 每次返回前台重新加载偏移参数（可能在别处改过）
+        val newNorth = prefs.getFloat("gps_offset_north", 0f)
+        val newEast = prefs.getFloat("gps_offset_east", 0f)
+        if (newNorth != gpsOffsetNorth || newEast != gpsOffsetEast) {
+            gpsOffsetNorth = newNorth
+            gpsOffsetEast = newEast
+            applyOffsetToCurrentLocation()
+            updateOffsetDisplay()
+        }
+
         if (remoteEnabled) {
             btnRemoteControl.text = "📡 断开远程"
         } else {
@@ -1474,6 +1796,7 @@ class AutoDriveActivity : AppCompatActivity(),
         goalMarker?.remove()
         projectionLine?.remove()
         projectionMarker?.remove()
+        locationMarker?.remove()
     }
 }
 
