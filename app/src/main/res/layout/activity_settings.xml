@@ -401,7 +401,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:text="导航速度倍率（0-2，倍率越小，速度越慢）"
+                    android:text="导航速度"
                     android:textColor="@color/text_primary"
                     android:textSize="16sp" />
 
@@ -454,12 +454,12 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="路径死区半径 (米)"
+                    android:text="转向增益"
                     android:textColor="#000000"
                     android:textSize="16sp" />
 
                 <EditText
-                    android:id="@+id/et_path_dead_zone"
+                    android:id="@+id/et_turn_gain"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="numberDecimal"

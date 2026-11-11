@@ -175,6 +175,10 @@ class BLEController(private val context: Context) {
             characteristic: BluetoothGattCharacteristic
         ) {
             if (characteristic.uuid == CHAR_UUID) {
+                if (!notifyEnabled) {
+                    Log.w(TAG, "收到 notify 但 notifyEnabled=false，兜底置为就绪")
+                    markNotifyReady()
+                }
                 val value = characteristic.value ?: return
                 handleReceivedBytes(value)
             }
@@ -187,6 +191,10 @@ class BLEController(private val context: Context) {
             value: ByteArray
         ) {
             if (characteristic.uuid == CHAR_UUID) {
+                if (!notifyEnabled) {
+                    Log.w(TAG, "收到 notify 但 notifyEnabled=false，兜底置为就绪")
+                    markNotifyReady()
+                }
                 handleReceivedBytes(value)
             }
         }
@@ -201,16 +209,9 @@ class BLEController(private val context: Context) {
 
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.i(TAG, "通知订阅成功，GATT 就绪")
-                notifyEnabled = true
-                // ★ 只有到这里才算真正"可写"，通知上层
-                connectionListener?.onConnected()
-                // 请求连接优先级（不占 GATT 写队列，是连接参数更新）
-                try {
-                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                } catch (_: Exception) {}
+                markNotifyReady()
             } else {
                 Log.e(TAG, "通知订阅失败: status=$status")
-                // 失败也断开，避免卡在不明状态
                 try { gatt.disconnect() } catch (_: Exception) {}
             }
         }
@@ -237,8 +238,7 @@ class BLEController(private val context: Context) {
         val cccd = characteristic.getDescriptor(CCCD_UUID)
         if (cccd == null) {
             Log.w(TAG, "找不到 CCCD 描述符（0x2902），跳过订阅，直接认为就绪")
-            notifyEnabled = true
-            connectionListener?.onConnected()
+            markNotifyReady()
             return
         }
 
@@ -252,8 +252,32 @@ class BLEController(private val context: Context) {
             gatt.writeDescriptor(cccd)
         }
         Log.i(TAG, "writeDescriptor = $result")
+
+        // ★ 兜底：3 秒内 onDescriptorWrite 没来，则强制认为订阅成功
+        // 兼容 vivo/OPPO 等定制 ROM 丢失 CCCD 写响应回调的问题
+        if (result) {
+            handler.postDelayed({
+                if (!notifyEnabled) {
+                    Log.w(TAG, "onDescriptorWrite 超时未回调，兜底认为订阅成功")
+                    markNotifyReady()
+                }
+            }, 3000L)
+        }
     }
 
+    /**
+     * 统一的"通知就绪"处理，幂等。
+     * 正常路径：onDescriptorWrite 成功回调触发；
+     * 兜底路径：3 秒超时触发 / 收到 notify 数据时触发。
+     */
+    private fun markNotifyReady() {
+        if (notifyEnabled) return
+        notifyEnabled = true
+        connectionListener?.onConnected()
+        try {
+            bluetoothGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+        } catch (_: Exception) {}
+    }
     // ============ 收到字节 → 字符串 → 回调 ============
     private fun handleReceivedBytes(value: ByteArray) {
         if (value.isEmpty()) return
@@ -384,8 +408,10 @@ class BLEController(private val context: Context) {
             return
         }
 
-        val speedClamped = speed.coerceIn(-2.0f, 2.0f)
-        val speedInt = (speedClamped * 50).toInt().coerceIn(-32768, 32767)
+        val speedClamped = speed
+        val speedInt = (speedClamped  * 100f)//定义速度范围是±100（整数）
+            .toInt()
+            .coerceIn(-32768, 32767)
         val turnInt = turn.toInt().coerceIn(-32768, 32767)
         val stopInt = if (stop) 1 else 0
 

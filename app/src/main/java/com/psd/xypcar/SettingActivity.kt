@@ -43,7 +43,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var spinnerJoystickMode: Spinner
     private lateinit var etTurnDeadZone: EditText
     private lateinit var etRollThreshold: EditText
-    private lateinit var etPathDeadZone: EditText
+    private lateinit var etTurnGain: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,7 +84,7 @@ class SettingsActivity : AppCompatActivity() {
         etTurnDeadZone = findViewById(R.id.et_turn_dead_zone)
         etRollThreshold = findViewById(R.id.et_roll_threshold)
 
-        etPathDeadZone = findViewById(R.id.et_path_dead_zone)
+        etTurnGain = findViewById(R.id.et_turn_gain)
 
         loadSettings()
 
@@ -140,7 +140,7 @@ class SettingsActivity : AppCompatActivity() {
 
         etTurnDeadZone.setText(prefs.getFloat("turn_dead_zone", 2f).toString())
         etRollThreshold.setText(prefs.getFloat("roll_threshold", 15f).toString())
-        etPathDeadZone.setText(prefs.getFloat("path_dead_zone", 2f).toString())
+        etTurnGain.setText(prefs.getFloat("turn_gain", 2f).toString())
     }
 
     private fun saveBluetooth() {
@@ -171,9 +171,9 @@ class SettingsActivity : AppCompatActivity() {
             editor.putFloat("arrival_distance", etArrivalDistance.text.toString().toFloat())
             editor.putFloat("calibration_time", etCalibrationTime.text.toString().toFloat())
             editor.putFloat("calibration_angle", etCalibrationAngle.text.toString().toFloat())
-            editor.putFloat("turn_dead_zone", etTurnDeadZone.text.toString().toFloatOrNull() ?: 2f)
+            editor.putFloat("turn_dead_zone", etTurnDeadZone.text.toString().toFloatOrNull() ?: 0.5f)
             editor.putFloat("roll_threshold", etRollThreshold.text.toString().toFloatOrNull() ?: 15f)
-            editor.putFloat("path_dead_zone", etPathDeadZone.text.toString().toFloatOrNull() ?: 2f)
+            editor.putFloat("turn_gain", etTurnGain.text.toString().toFloatOrNull() ?: 1.5f)
             editor.apply()
             Toast.makeText(this, "导航设置已保存", Toast.LENGTH_SHORT).show()
         } catch (_: NumberFormatException) {
